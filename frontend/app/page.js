@@ -34,6 +34,15 @@ import { Linkedin, Twitter, Instagram, Facebook, YouTube } from '@/components/So
 
 const BACKEND_URL = (process.env.NEXT_PUBLIC_BACKEND_URL || 'https://auto-social-tool-ctzn.vercel.app').replace(/\/$/, '');
 
+const normalizeMediaUrl = (url) => {
+  if (!url) return url;
+  if (url.includes('/api/media/')) {
+    const id = url.split('/api/media/')[1];
+    return `${BACKEND_URL}/api/media/${id}`;
+  }
+  return url;
+};
+
 const PLATFORM_CONFIG = {
   linkedin: {
     name: 'LinkedIn',
@@ -131,7 +140,7 @@ export default function Home() {
       const res = await fetch(`${BACKEND_URL}/api/posts`);
       const data = await res.json();
       if (data.success && Array.isArray(data.posts)) {
-        setPosts(data.posts);
+        setPosts(data.posts.map((p) => ({ ...p, imageUrl: normalizeMediaUrl(p.imageUrl) })));
       }
     } catch (err) {
       console.warn('Backend connection note:', err.message);
@@ -390,6 +399,40 @@ export default function Home() {
     }
   };
 
+  // Visual Regeneration State & Handler
+  const [isRegeneratingImage, setIsRegeneratingImage] = useState(false);
+
+  const handleRegenerateImage = async () => {
+    if (!latestPost || isRegeneratingImage) return;
+    setIsRegeneratingImage(true);
+    setBannerMsg({ type: 'info', text: '🎨 Generating fresh visual asset with AI...' });
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/pipeline/regenerate-image`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          topic: latestPost.research?.topic,
+          imagePrompt: latestPost.content?.imagePrompt,
+          summary: latestPost.research?.summary,
+          niche: latestPost.niche,
+          postId: latestPost._id
+        })
+      });
+      const data = await res.json();
+      if (data.success && data.imageUrl) {
+        const cleanUrl = normalizeMediaUrl(data.imageUrl);
+        setLatestPost((prev) => prev ? { ...prev, imageUrl: cleanUrl } : prev);
+        setBannerMsg({ type: 'success', text: '✨ Fresh visual created and synced!' });
+      } else {
+        setBannerMsg({ type: 'error', text: data.error || 'Failed to regenerate visual.' });
+      }
+    } catch (err) {
+      setBannerMsg({ type: 'error', text: 'Error connecting to image generation service.' });
+    } finally {
+      setIsRegeneratingImage(false);
+    }
+  };
+
   // Pipeline Generation
   const triggerPipeline = async () => {
     if (!niche.trim()) return;
@@ -417,7 +460,11 @@ export default function Home() {
       const data = await res.json();
 
       if (data.success) {
-        setLatestPost(data.data);
+        const postData = data.data;
+        if (postData?.imageUrl) {
+          postData.imageUrl = normalizeMediaUrl(postData.imageUrl);
+        }
+        setLatestPost(postData);
         setActiveTab('linkedin');
         setBannerMsg({
           type: 'success',
@@ -1104,24 +1151,38 @@ export default function Home() {
                   /* Clean Warm Editorial AI Artwork */
                   <div className="aspect-square w-full rounded-2xl overflow-hidden bg-[#fcfbf8] border border-stone-200 flex items-center justify-center relative group">
                     <img
-                      src={latestPost.imageUrl}
+                      src={normalizeMediaUrl(latestPost.imageUrl)}
                       alt="AI Editorial Creative"
                       onError={(e) => {
                         const fallbackPrompt = encodeURIComponent(
                           `${latestPost.research?.topic || latestPost.niche || 'Technology Innovation'}, 3D modern conceptual illustration, minimal, 8k`
                         );
-                        e.currentTarget.src = `https://image.pollinations.ai/prompt/${fallbackPrompt}?width=1080&height=1080&nologo=true&seed=42`;
+                        const fallbackUrl = `https://image.pollinations.ai/prompt/${fallbackPrompt}?width=1080&height=1080&nologo=true&seed=42`;
+                        e.currentTarget.src = fallbackUrl;
+                        setLatestPost((prev) => prev ? { ...prev, imageUrl: fallbackUrl } : prev);
                       }}
                       className="w-full h-full object-cover object-top"
                     />
-                    <a
-                      href={latestPost.imageUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="absolute bottom-3 right-3 bg-stone-900/80 hover:bg-stone-900 text-white p-2 rounded-xl text-xs font-mono backdrop-blur-xs transition flex items-center gap-1.5 shadow-sm"
-                    >
-                      <ExternalLink size={13} /> Full Image
-                    </a>
+                    <div className="absolute bottom-3 right-3 flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleRegenerateImage}
+                        disabled={isRegeneratingImage}
+                        className="bg-stone-900/80 hover:bg-stone-900 text-white px-2.5 py-1.5 rounded-xl text-xs font-mono backdrop-blur-xs transition flex items-center gap-1.5 shadow-sm disabled:opacity-50 cursor-pointer"
+                        title="Generate a new AI visual"
+                      >
+                        <RefreshCw size={12} className={isRegeneratingImage ? 'animate-spin' : ''} />
+                        {isRegeneratingImage ? 'Creating...' : 'New Visual'}
+                      </button>
+                      <a
+                        href={normalizeMediaUrl(latestPost.imageUrl)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="bg-stone-900/80 hover:bg-stone-900 text-white p-2 rounded-xl text-xs font-mono backdrop-blur-xs transition flex items-center gap-1.5 shadow-sm"
+                      >
+                        <ExternalLink size={13} />
+                      </a>
+                    </div>
                   </div>
                 )}
               </div>

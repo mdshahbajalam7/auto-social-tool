@@ -30,6 +30,22 @@ async function getPublicImageUrl(imageUrl) {
         if (imageUrl.startsWith('data:image/')) {
             const base64Data = imageUrl.split(',')[1];
             rawBuffer = Buffer.from(base64Data, 'base64');
+        } else if (imageUrl.includes('/api/media/')) {
+            try {
+                const idMatch = imageUrl.match(/\/api\/media\/([a-f0-9]+)/i);
+                if (idMatch) {
+                    const { Media } = await import('../models/Media.js');
+                    const media = await Media.findById(idMatch[1]);
+                    if (media?.data) {
+                        rawBuffer = media.data;
+                        filename = media.filename || filename;
+                    }
+                }
+            } catch (_) {}
+            if (!rawBuffer) {
+                const res = await axios.get(imageUrl, { responseType: 'arraybuffer', timeout: 10000 });
+                rawBuffer = Buffer.from(res.data);
+            }
         } else if (imageUrl.includes('localhost') || imageUrl.includes('127.0.0.1')) {
             try {
                 const parsedUrl = new URL(imageUrl);

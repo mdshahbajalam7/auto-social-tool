@@ -173,6 +173,29 @@ app.post('/api/pipeline/auto-run', async (req, res) => {
     }
 });
 
+// Regenerate single image asset for active draft
+app.post('/api/pipeline/regenerate-image', async (req, res) => {
+    try {
+        const { topic, imagePrompt, summary, niche, postId } = req.body;
+        console.log(`🎨 [Regenerate Visual] Crafting fresh visual for topic: "${topic || niche}"...`);
+        const newImageUrl = await generateImageWithGemini({
+            imagePrompt,
+            topic,
+            summary,
+            niche
+        });
+
+        if (postId) {
+            await Post.findByIdAndUpdate(postId, { imageUrl: newImageUrl });
+        }
+
+        return res.json({ success: true, imageUrl: newImageUrl });
+    } catch (error) {
+        console.error('Regenerate image error:', error);
+        return res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 // Clean up any historical un-published drafts from database
 Post.deleteMany({ status: { $ne: 'published' } }).then((res) => {
     if (res.deletedCount > 0) {
