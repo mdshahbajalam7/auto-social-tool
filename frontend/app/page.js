@@ -142,6 +142,7 @@ export default function Home() {
   const [autoReplyStats, setAutoReplyStats] = useState({ totalRepliesSent: 0, postsWithRepliesCount: 0 });
   const [commentPostId, setCommentPostId] = useState('');
   const [commentCustomUrn, setCommentCustomUrn] = useState('');
+  const [commentLinkOrUrn, setCommentLinkOrUrn] = useState('');
   const [commenterName, setCommenterName] = useState('');
   const [incomingComment, setIncomingComment] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -222,6 +223,7 @@ export default function Home() {
       const selectedPost = posts.find((p) => p._id === commentPostId);
       const payload = {
         commentText: incomingComment.trim(),
+        commenterName: commenterName.trim() || undefined,
         postId: commentPostId && commentPostId !== 'custom' ? commentPostId : undefined,
         postTopic: selectedPost?.research?.topic || selectedPost?.niche || 'Professional Topic',
         postContent: selectedPost?.content?.linkedin || selectedPost?.content?.twitter || ''
@@ -266,6 +268,7 @@ export default function Home() {
         body: JSON.stringify({
           postId: commentPostId && commentPostId !== 'custom' ? commentPostId : undefined,
           linkedinPostUrn: targetUrn || undefined,
+          parentCommentUrn: commentLinkOrUrn.trim() || undefined,
           commentText: incomingComment.trim(),
           customReplyText: replyDraft.trim(),
           commenterName: commenterName.trim() || 'LinkedIn Member'
@@ -279,6 +282,7 @@ export default function Home() {
           text: `🎉 Comment reply successfully posted LIVE on LinkedIn! AI replied: "${data.result?.replyText}"`
         });
         setIncomingComment('');
+        setCommentLinkOrUrn('');
         setReplyDraft('');
         setAltReplyDraft('');
         setSentiment('');
@@ -794,7 +798,29 @@ export default function Home() {
                 <div>
                   <div className="flex items-center justify-between mb-1">
                     <label className="text-xs font-mono font-medium text-stone-700">
-                      2. Commenter Name (Optional)
+                      2. Direct Comment Link / URN (Optional - For Threaded Reply)
+                    </label>
+                    <span className="text-[10px] text-stone-400 font-mono">... &gt; Copy link to comment</span>
+                  </div>
+                  <input
+                    type="text"
+                    value={commentLinkOrUrn}
+                    onChange={(e) => setCommentLinkOrUrn(e.target.value)}
+                    placeholder="e.g. https://www.linkedin.com/feed/update/... or urn:li:comment:..."
+                    className="w-full bg-white border border-stone-200 rounded-xl px-3 py-2 text-xs text-stone-900 focus:outline-none focus:border-stone-400 font-mono"
+                  />
+                  {commentLinkOrUrn.includes('comment') && (
+                    <p className="text-[10px] font-mono text-emerald-700 mt-1 flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                      Target comment thread detected! AI reply will nest directly under this user.
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-mono font-medium text-stone-700">
+                      3. Commenter Name (Optional)
                     </label>
                     <span className="text-[10px] text-stone-400 font-mono">e.g. Rahul Sharma</span>
                   </div>
@@ -802,7 +828,7 @@ export default function Home() {
                     type="text"
                     value={commenterName}
                     onChange={(e) => setCommenterName(e.target.value)}
-                    placeholder="e.g. Community Member or Author Name"
+                    placeholder="e.g. Rahul Sharma (AI will address: 'Thanks Rahul!')"
                     className="w-full bg-white border border-stone-200 rounded-xl px-3 py-2 text-xs text-stone-900 focus:outline-none focus:border-stone-400 font-sans"
                   />
                 </div>
@@ -810,7 +836,7 @@ export default function Home() {
                 <div>
                   <div className="flex items-center justify-between mb-1">
                     <label className="text-xs font-mono font-medium text-stone-700">
-                      3. Paste User Comment from LinkedIn *
+                      4. Paste User Comment from LinkedIn *
                     </label>
                     <span className="text-[10px] text-stone-400 font-mono">
                       {incomingComment.length} chars

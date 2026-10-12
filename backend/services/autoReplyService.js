@@ -10,20 +10,24 @@ import { Post } from '../models/Post.js';
  * Generate a smart, contextual, and engaging LinkedIn comment reply using AI
  */
 export async function generateAIReply({ postTopic, postContent, commenterName, commentText }) {
+    const cleanName = commenterName && !['A professional', 'LinkedIn Member', 'LinkedIn User'].includes(commenterName.trim())
+        ? commenterName.trim()
+        : '';
+
     const prompt = `
-You are the author of a professional LinkedIn post. Someone commented on your post, and you want to write a genuine, thoughtful, and engaging reply.
+You are the author of a professional LinkedIn post. A user commented on your post, and you need to reply directly to their comment.
 
 Post Topic: ${postTopic || 'Industry Insight'}
 Post Snippet: ${(postContent || '').slice(0, 300)}
-Commenter: ${commenterName || 'A professional'}
-Comment: "${commentText}"
+Commenter Name: ${cleanName || 'Community Member'}
+User's Comment: "${commentText}"
 
 Instructions:
-1. Write a natural, personalized 1-3 sentence response.
-2. Be appreciative, courteous, and professionally engaging.
-3. If they asked a question or shared an opinion, address their specific point directly with insight.
-4. Do NOT sound like an automated robotic bot. Keep it conversational, warm, and authentic.
-5. Return ONLY the reply text directly (no greetings like "Subject:", no quotes, no markdown headers).
+1. Write a natural, personalized 1-3 sentence reply directly answering their comment.
+2. ${cleanName ? `Address ${cleanName} warmly by first name (e.g. "Thanks ${cleanName}!", "Great question, ${cleanName}!").` : 'Start with a warm, professional greeting.'}
+3. Answer or build upon their specific question, opinion, or feedback with real insight.
+4. Keep it conversational, warm, and authentic — do NOT sound like a generic robotic bot.
+5. Return ONLY the reply text directly (no quotes, no subject line, no markdown).
 `;
 
     // 1. Try Google Gemini AI
@@ -141,6 +145,30 @@ export async function fetchLinkedInComments({ targetUrn, token }) {
 }
 
 /**
+ * Parse LinkedIn comment URL or URN to extract postUrn and commentUrn
+ */
+export function parseLinkedInCommentUrl(input) {
+    if (!input || typeof input !== 'string') return { postUrn: null, commentUrn: null };
+    const decoded = decodeURIComponent(input.trim());
+
+    // Extract comment URN (e.g. urn:li:comment:(activity:...,...) or urn:li:comment:123)
+    let commentUrn = null;
+    const commentMatch = decoded.match(/urn:li:comment:\([^)]+\)/i) || decoded.match(/urn:li:comment:[0-9]+/i);
+    if (commentMatch) {
+        commentUrn = commentMatch[0];
+    }
+
+    // Extract post URN (e.g. urn:li:activity:..., urn:li:share:..., urn:li:ugcPost:...)
+    let postUrn = null;
+    const postMatch = decoded.match(/urn:li:(?:share|ugcPost|activity):[0-9]+/i);
+    if (postMatch) {
+        postUrn = postMatch[0];
+    }
+
+    return { postUrn, commentUrn };
+}
+
+/**
  * Post a comment reply back to LinkedIn
  */
 export async function postLinkedInReply({ targetUrn, token, authorUrn, replyText, parentCommentUrn }) {
@@ -168,7 +196,7 @@ export async function postLinkedInReply({ targetUrn, token, authorUrn, replyText
             timeout: 15000
         });
 
-        console.log(`✅ [LinkedIn] Comment reply posted successfully! (URN: ${res.data?.['$URN'] || 'OK'})`);
+        console.log(`✅ [LinkedIn] Comment reply posted successfully! (URN: ${res.data?.['$URN'] || 'OK'}, In-Reply-To: ${parentCommentUrn || 'Top-level'})`);
         return { success: true, id: res.data?.['$URN'] || `reply_${Date.now()}` };
     } catch (v2Err) {
         console.warn('ℹ️ [LinkedIn] v2 reply post attempt failed, trying REST endpoint...', v2Err.response?.data || v2Err.message);
@@ -187,6 +215,10 @@ export async function postLinkedInReply({ targetUrn, token, authorUrn, replyText
                 }
             };
 
+            if (parentCommentUrn) {
+                restPayload.parentComment = parentCommentUrn;
+            }
+
             const res = await axios.post(`https://api.linkedin.com/rest/socialActions/${encodedUrn}/comments`, restPayload, {
                 headers: {
                     Authorization: `Bearer ${token}`,
@@ -197,7 +229,7 @@ export async function postLinkedInReply({ targetUrn, token, authorUrn, replyText
                 timeout: 15000
             });
 
-            console.log(`✅ [LinkedIn REST] Comment reply posted successfully with version ${ver}!`);
+            console.log(`✅ [LinkedIn REST] Comment reply posted successfully with version ${ver}! (In-Reply-To: ${parentCommentUrn || 'Top-level'})`);
             return { success: true, id: res.data?.id || `reply_${Date.now()}` };
         } catch (restErr) {
             lastError = restErr;
@@ -234,8 +266,22 @@ export async function replyToCommentManual({ postId, linkedinPostUrn, commentTex
         targetUrn = post.publishResult?.linkedin?.postId || '';
     }
 
+    let finalParentComment = (parentCommentUrn || '').trim();
+
+    // If parentCommentUrn is a URL, extract both comment URN and post URN
+    if (finalParentComment.startsWith('http')) {
+        const parsed = parseLinkedInCommentUrl(finalParentComment);
+        if (parsed.commentUrn) finalParentComment = parsed.commentUrn;
+        if (parsed.postUrn && !targetUrn) targetUrn = parsed.postUrn;
+    }
+
+    if (targetUrn.startsWith('http')) {
+        const parsed = parseLinkedInCommentUrl(targetUrn);
+        if (parsed.postUrn) targetUrn = parsed.postUrn;
+        if (parsed.commentUrn && !finalParentComment) finalParentComment = parsed.commentUrn;
+    }
+
     if (targetUrn) {
-        // Support direct LinkedIn URLs: extract URN
         const urnMatch = targetUrn.match(/urn:li:(?:share|ugcPost|activity):[0-9]+/i);
         if (urnMatch) {
             targetUrn = urnMatch[0];
@@ -253,13 +299,13 @@ export async function replyToCommentManual({ postId, linkedinPostUrn, commentTex
         commentText: commentText || 'Great post!'
     });
 
-    // 2. Post reply to LinkedIn
+    // 2. Post reply directly to LinkedIn (with parentComment if replying to a specific comment)
     const postRes = await postLinkedInReply({
         targetUrn,
         token,
         authorUrn,
         replyText: aiReply,
-        parentCommentUrn
+        parentCommentUrn: finalParentComment || undefined
     });
 
     if (!postRes.success) {
@@ -459,7 +505,7 @@ export function startAutoReplyCron() {
 /**
  * Preview and analyze a comment before publishing
  */
-export async function previewCommentReply({ postId, commentText, postTopic, postContent }) {
+export async function previewCommentReply({ postId, commentText, commenterName, postTopic, postContent }) {
     await connectDB();
     let topic = postTopic || 'Industry Insight';
     let snippet = postContent || '';
@@ -474,15 +520,21 @@ export async function previewCommentReply({ postId, commentText, postTopic, post
         } catch (_) {}
     }
 
+    const cleanName = commenterName && !['A professional', 'LinkedIn Member', 'LinkedIn User'].includes(commenterName.trim())
+        ? commenterName.trim()
+        : '';
+
     const prompt = `
-You are the author of a professional LinkedIn post.
+You are the author of a professional LinkedIn post. A user commented on your post, and you want to reply directly to their specific comment.
+
 Post Topic: ${topic}
 Post Snippet: ${snippet.slice(0, 300)}
+Commenter Name: ${cleanName || 'Community Member'}
 User Comment: "${commentText}"
 
 Analyze the comment and generate:
-1. Primary AI Reply (1-2 sentences, natural, engaging, professional).
-2. Alternative Reply (more conversational / thoughtful).
+1. Primary AI Reply (1-2 sentences, natural, engaging, personalized. ${cleanName ? `Directly address ${cleanName} by name and answer their point.` : 'Directly answer their point with warmth.'}).
+2. Alternative Reply (more conversational or punchier, directly addressing the commenter).
 3. Sentiment (one word: "Positive", "Curious", "Question", "Constructive", or "Praise").
 
 Return raw JSON only:
@@ -514,13 +566,15 @@ Return raw JSON only:
     const fallbackReply = await generateAIReply({
         postTopic: topic,
         postContent: snippet,
-        commenterName: 'LinkedIn User',
+        commenterName: cleanName || 'LinkedIn User',
         commentText
     });
 
     return {
         sentiment: 'Engaging',
         primaryReply: fallbackReply,
-        alternateReply: 'Thank you for your valuable perspective! Glad this resonated with you.'
+        alternateReply: cleanName
+            ? `Thanks ${cleanName}! Really appreciate your perspective on this.`
+            : 'Thank you for your valuable perspective! Glad this resonated with you.'
     };
 }

@@ -465,7 +465,7 @@ app.get('/api/linkedin/auto-reply-stats', async (req, res) => {
 // Preview and generate AI draft for an incoming LinkedIn comment
 app.post('/api/linkedin/preview-reply', async (req, res) => {
     try {
-        const { postId, commentText, postTopic, postContent } = req.body;
+        const { postId, commentText, commenterName, postTopic, postContent } = req.body;
         if (!commentText || !commentText.trim()) {
             return res.status(400).json({ success: false, error: 'commentText is required' });
         }
@@ -473,6 +473,7 @@ app.post('/api/linkedin/preview-reply', async (req, res) => {
         const preview = await previewCommentReply({
             postId,
             commentText: commentText.trim(),
+            commenterName,
             postTopic,
             postContent
         });
