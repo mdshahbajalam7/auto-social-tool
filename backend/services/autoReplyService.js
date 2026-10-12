@@ -221,74 +221,125 @@ export function parseLinkedInCommentUrl(input, fallbackPostUrn = '') {
 }
 
 /**
+ * Resolve URL redirects (e.g. expand lnkd.in shortened links)
+ */
+export async function resolveUrlRedirect(url) {
+    if (!url || typeof url !== 'string') return url;
+    const trimmed = url.trim();
+    if (trimmed.includes('lnkd.in') || trimmed.includes('bit.ly') || trimmed.includes('t.co') || trimmed.includes('tinyurl')) {
+        try {
+            console.log(`🔍 [URL Resolver] Expanding shortened link: ${trimmed}...`);
+            const res = await axios.get(trimmed, {
+                maxRedirects: 5,
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+                },
+                timeout: 7000
+            });
+            const finalUrl = res.request?.res?.responseUrl || res.config?.url;
+            if (finalUrl && finalUrl !== trimmed) {
+                console.log(`✅ [URL Resolver] Expanded ${trimmed} -> ${finalUrl}`);
+                return finalUrl;
+            }
+        } catch (err) {
+            if (err.response?.headers?.location) {
+                const redirected = err.response.headers.location;
+                console.log(`✅ [URL Resolver] Expanded redirect header -> ${redirected}`);
+                return redirected;
+            }
+            console.warn('⚠️ [URL Resolver] Could not expand link:', err.message);
+        }
+    }
+    return trimmed;
+}
+
+/**
  * Post a comment reply back to LinkedIn
  */
 export async function postLinkedInReply({ targetUrn, token, authorUrn, replyText, parentCommentUrn }) {
     const encodedUrn = encodeURIComponent(targetUrn);
 
-    // Method 1: LinkedIn v2 socialActions POST
-    try {
-        const payload = {
-            actor: authorUrn,
-            message: {
-                text: replyText
-            }
-        };
-
-        if (parentCommentUrn) {
-            payload.parentComment = parentCommentUrn;
+    // Build candidate parentComment URN formats:
+    // LinkedIn API accepts composite URNs: with or without the inner "urn:li:" prefix
+    const parentCandidates = [];
+    if (parentCommentUrn) {
+        parentCandidates.push(parentCommentUrn);
+        if (parentCommentUrn.includes('(urn:li:activity:')) {
+            parentCandidates.push(parentCommentUrn.replace('(urn:li:activity:', '(activity:'));
+        } else if (parentCommentUrn.includes('(activity:')) {
+            parentCandidates.push(parentCommentUrn.replace('(activity:', '(urn:li:activity:'));
         }
-
-        const res = await axios.post(`https://api.linkedin.com/v2/socialActions/${encodedUrn}/comments`, payload, {
-            headers: {
-                Authorization: `Bearer ${token}`,
-                'X-Restli-Protocol-Version': '2.0.0',
-                'Content-Type': 'application/json'
-            },
-            timeout: 15000
-        });
-
-        console.log(`✅ [LinkedIn] Comment reply posted successfully! (URN: ${res.data?.['$URN'] || 'OK'}, In-Reply-To: ${parentCommentUrn || 'Top-level'})`);
-        return { success: true, id: res.data?.['$URN'] || `reply_${Date.now()}` };
-    } catch (v2Err) {
-        console.warn('ℹ️ [LinkedIn] v2 reply post attempt failed, trying REST endpoint...', v2Err.response?.data || v2Err.message);
+    } else {
+        parentCandidates.push(null);
     }
 
-    // Method 2: LinkedIn REST API with version fallback
-    const versionsToTry = ['202502', '202501', '202412', '202411', '202410'];
     let lastError = null;
 
-    for (const ver of versionsToTry) {
+    // Method 1: Try LinkedIn v2 socialActions POST with candidate parentComment formats
+    for (const cand of parentCandidates) {
         try {
-            const restPayload = {
+            const payload = {
                 actor: authorUrn,
                 message: {
                     text: replyText
                 }
             };
 
-            if (parentCommentUrn) {
-                restPayload.parentComment = parentCommentUrn;
+            if (cand) {
+                payload.parentComment = cand;
             }
 
-            const res = await axios.post(`https://api.linkedin.com/rest/socialActions/${encodedUrn}/comments`, restPayload, {
+            const res = await axios.post(`https://api.linkedin.com/v2/socialActions/${encodedUrn}/comments`, payload, {
                 headers: {
                     Authorization: `Bearer ${token}`,
-                    'LinkedIn-Version': ver,
                     'X-Restli-Protocol-Version': '2.0.0',
                     'Content-Type': 'application/json'
                 },
                 timeout: 15000
             });
 
-            console.log(`✅ [LinkedIn REST] Comment reply posted successfully with version ${ver}! (In-Reply-To: ${parentCommentUrn || 'Top-level'})`);
-            return { success: true, id: res.data?.id || `reply_${Date.now()}` };
-        } catch (restErr) {
-            lastError = restErr;
-            if (restErr.response?.status === 426 || restErr.response?.data?.code === 'NONEXISTENT_VERSION') {
-                continue;
+            console.log(`✅ [LinkedIn] Comment reply posted successfully! (URN: ${res.data?.['$URN'] || 'OK'}, In-Reply-To: ${cand || 'Top-level'})`);
+            return { success: true, id: res.data?.['$URN'] || `reply_${Date.now()}` };
+        } catch (v2Err) {
+            lastError = v2Err;
+            console.warn(`ℹ️ [LinkedIn] v2 reply attempt with parentComment (${cand || 'none'}) note:`, v2Err.response?.data?.message || v2Err.message);
+        }
+    }
+
+    // Method 2: Fallback to LinkedIn REST API with version negotiation
+    const versionsToTry = ['202502', '202501', '202412', '202411', '202410'];
+    for (const ver of versionsToTry) {
+        for (const cand of parentCandidates) {
+            try {
+                const restPayload = {
+                    actor: authorUrn,
+                    message: {
+                        text: replyText
+                    }
+                };
+
+                if (cand) {
+                    restPayload.parentComment = cand;
+                }
+
+                const res = await axios.post(`https://api.linkedin.com/rest/socialActions/${encodedUrn}/comments`, restPayload, {
+                    headers: {
+                        Authorization: `Bearer ${token}`,
+                        'LinkedIn-Version': ver,
+                        'X-Restli-Protocol-Version': '2.0.0',
+                        'Content-Type': 'application/json'
+                    },
+                    timeout: 15000
+                });
+
+                console.log(`✅ [LinkedIn REST] Comment reply posted successfully with version ${ver}! (In-Reply-To: ${cand || 'Top-level'})`);
+                return { success: true, id: res.data?.id || `reply_${Date.now()}` };
+            } catch (restErr) {
+                lastError = restErr;
+                if (restErr.response?.status === 426 || restErr.response?.data?.code === 'NONEXISTENT_VERSION') {
+                    break;
+                }
             }
-            break;
         }
     }
 
@@ -320,14 +371,27 @@ export async function replyToCommentManual({ postId, linkedinPostUrn, commentTex
 
     let finalParentComment = (parentCommentUrn || '').trim();
 
-    // If parentCommentUrn is provided (URL, URN, or ID), parse and normalize
+    // 1. If parentCommentUrn is a shortened link (like lnkd.in/...), expand it
+    if (finalParentComment.startsWith('http')) {
+        finalParentComment = await resolveUrlRedirect(finalParentComment);
+    }
+
+    // 2. Parse comment URL/URN into composite URN and extract matching post activity URN
     if (finalParentComment) {
         const parsed = parseLinkedInCommentUrl(finalParentComment, targetUrn);
-        if (parsed.commentUrn) finalParentComment = parsed.commentUrn;
-        if (parsed.postUrn && !targetUrn) targetUrn = parsed.postUrn;
+        if (parsed.commentUrn) {
+            finalParentComment = parsed.commentUrn;
+        } else {
+            console.warn(`⚠️ [LinkedIn] Could not parse "${finalParentComment}" into a valid URN, clearing parentComment.`);
+            finalParentComment = '';
+        }
+        if (parsed.postUrn) {
+            targetUrn = parsed.postUrn;
+        }
     }
 
     if (targetUrn && targetUrn.startsWith('http')) {
+        targetUrn = await resolveUrlRedirect(targetUrn);
         const parsed = parseLinkedInCommentUrl(targetUrn);
         if (parsed.postUrn) targetUrn = parsed.postUrn;
         if (parsed.commentUrn && !finalParentComment) finalParentComment = parsed.commentUrn;
@@ -343,7 +407,7 @@ export async function replyToCommentManual({ postId, linkedinPostUrn, commentTex
     if (!targetUrn) throw new Error('Target LinkedIn Post ID or URN is required.');
     if (!token || !authorUrn) throw new Error('LinkedIn is not connected.');
 
-    // 1. Generate AI Reply if custom text not provided
+    // 3. Generate AI Reply if custom text not provided
     const aiReply = customReplyText?.trim() || await generateAIReply({
         postTopic: post?.research?.topic || post?.niche || 'Professional Discussion',
         postContent: post?.content?.linkedin || post?.content?.twitter || '',
@@ -351,7 +415,9 @@ export async function replyToCommentManual({ postId, linkedinPostUrn, commentTex
         commentText: commentText || 'Great post!'
     });
 
-    // 2. Post reply directly to LinkedIn (with parentComment if replying to a specific comment)
+    console.log(`📤 [LinkedIn Reply] Dispatching reply to targetUrn: "${targetUrn}", parentComment: "${finalParentComment || 'None (Top-Level)'}"...`);
+
+    // 4. Post reply directly to LinkedIn
     const postRes = await postLinkedInReply({
         targetUrn,
         token,
@@ -365,7 +431,7 @@ export async function replyToCommentManual({ postId, linkedinPostUrn, commentTex
     }
 
     const replyRecord = {
-        commentId: parentCommentUrn || `manual_${Date.now()}`,
+        commentId: finalParentComment || parentCommentUrn || `manual_${Date.now()}`,
         commentText: commentText || 'User Comment',
         replyText: aiReply,
         targetUrn,
@@ -382,8 +448,10 @@ export async function replyToCommentManual({ postId, linkedinPostUrn, commentTex
     return {
         success: true,
         replyText: aiReply,
+        parentCommentUrn: finalParentComment || null,
         targetUrn,
-        record: replyRecord
+        commenterName: commenterName || 'LinkedIn User',
+        timestamp: new Date().toISOString()
     };
 }
 
