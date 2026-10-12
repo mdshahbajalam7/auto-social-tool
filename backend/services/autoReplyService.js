@@ -216,33 +216,50 @@ export async function postLinkedInReply({ targetUrn, token, authorUrn, replyText
 /**
  * Manually submit a comment reply using AI or custom text
  */
-export async function replyToCommentManual({ postId, commentText, customReplyText }) {
+export async function replyToCommentManual({ postId, linkedinPostUrn, commentText, customReplyText, commenterName, parentCommentUrn }) {
     await connectDB();
-    const post = await Post.findById(postId);
-    if (!post) throw new Error('Post not found');
+    let post = null;
+    if (postId) {
+        try {
+            post = await Post.findById(postId);
+        } catch (_) {}
+    }
 
     const account = await Account.findOne({ platform: 'linkedin', isConnected: true });
     const token = account?.accessToken || process.env.LINKEDIN_ACCESS_TOKEN;
     const authorUrn = account?.accountUrn || process.env.LINKEDIN_PERSON_URN;
-    const linkedinPostId = post.publishResult?.linkedin?.postId;
 
-    if (!linkedinPostId) throw new Error('This post does not have a published LinkedIn Post ID.');
+    let targetUrn = (linkedinPostUrn || '').trim();
+    if (!targetUrn && post) {
+        targetUrn = post.publishResult?.linkedin?.postId || '';
+    }
+
+    if (targetUrn) {
+        // Support direct LinkedIn URLs: extract URN
+        const urnMatch = targetUrn.match(/urn:li:(?:share|ugcPost|activity):[0-9]+/i);
+        if (urnMatch) {
+            targetUrn = urnMatch[0];
+        }
+    }
+
+    if (!targetUrn) throw new Error('Target LinkedIn Post ID or URN is required.');
     if (!token || !authorUrn) throw new Error('LinkedIn is not connected.');
 
     // 1. Generate AI Reply if custom text not provided
     const aiReply = customReplyText?.trim() || await generateAIReply({
-        postTopic: post.research?.topic || post.niche,
-        postContent: post.content?.linkedin || post.content?.twitter,
-        commenterName: 'LinkedIn User',
+        postTopic: post?.research?.topic || post?.niche || 'Professional Discussion',
+        postContent: post?.content?.linkedin || post?.content?.twitter || '',
+        commenterName: commenterName || 'LinkedIn User',
         commentText: commentText || 'Great post!'
     });
 
     // 2. Post reply to LinkedIn
     const postRes = await postLinkedInReply({
-        targetUrn: linkedinPostId,
+        targetUrn,
         token,
         authorUrn,
-        replyText: aiReply
+        replyText: aiReply,
+        parentCommentUrn
     });
 
     if (!postRes.success) {
@@ -250,20 +267,24 @@ export async function replyToCommentManual({ postId, commentText, customReplyTex
     }
 
     const replyRecord = {
-        commentId: `manual_${Date.now()}`,
+        commentId: parentCommentUrn || `manual_${Date.now()}`,
         commentText: commentText || 'User Comment',
         replyText: aiReply,
+        targetUrn,
+        commenterName: commenterName || 'LinkedIn User',
         repliedAt: new Date()
     };
 
-    await Post.findByIdAndUpdate(post._id, {
-        $push: { repliedComments: replyRecord }
-    });
+    if (post) {
+        await Post.findByIdAndUpdate(post._id, {
+            $push: { repliedComments: replyRecord }
+        });
+    }
 
     return {
         success: true,
         replyText: aiReply,
-        postId: linkedinPostId,
+        targetUrn,
         record: replyRecord
     };
 }
@@ -433,4 +454,73 @@ export function startAutoReplyCron() {
     setTimeout(() => {
         autoReplyAllRecentLinkedInPosts().catch(() => {});
     }, 5000);
+}
+
+/**
+ * Preview and analyze a comment before publishing
+ */
+export async function previewCommentReply({ postId, commentText, postTopic, postContent }) {
+    await connectDB();
+    let topic = postTopic || 'Industry Insight';
+    let snippet = postContent || '';
+
+    if (postId) {
+        try {
+            const post = await Post.findById(postId);
+            if (post) {
+                topic = post.research?.topic || post.niche || topic;
+                snippet = post.content?.linkedin || post.content?.twitter || snippet;
+            }
+        } catch (_) {}
+    }
+
+    const prompt = `
+You are the author of a professional LinkedIn post.
+Post Topic: ${topic}
+Post Snippet: ${snippet.slice(0, 300)}
+User Comment: "${commentText}"
+
+Analyze the comment and generate:
+1. Primary AI Reply (1-2 sentences, natural, engaging, professional).
+2. Alternative Reply (more conversational / thoughtful).
+3. Sentiment (one word: "Positive", "Curious", "Question", "Constructive", or "Praise").
+
+Return raw JSON only:
+{
+  "sentiment": "Positive",
+  "primaryReply": "reply here",
+  "alternateReply": "alternate reply here"
+}
+`;
+
+    const geminiKey = process.env.GEMINI_API_KEY;
+    if (geminiKey && !geminiKey.includes('your_')) {
+        const ai = new GoogleGenAI({ apiKey: geminiKey });
+        try {
+            const res = await ai.models.generateContent({
+                model: 'gemini-2.5-flash',
+                contents: prompt
+            });
+            const raw = res.text || '';
+            const b1 = raw.indexOf('{');
+            const b2 = raw.lastIndexOf('}');
+            if (b1 !== -1 && b2 !== -1) {
+                const parsed = JSON.parse(raw.slice(b1, b2 + 1));
+                return parsed;
+            }
+        } catch (_) {}
+    }
+
+    const fallbackReply = await generateAIReply({
+        postTopic: topic,
+        postContent: snippet,
+        commenterName: 'LinkedIn User',
+        commentText
+    });
+
+    return {
+        sentiment: 'Engaging',
+        primaryReply: fallbackReply,
+        alternateReply: 'Thank you for your valuable perspective! Glad this resonated with you.'
+    };
 }

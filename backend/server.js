@@ -19,6 +19,7 @@ import {
     autoReplyAllRecentLinkedInPosts,
     processPostComments,
     replyToCommentManual,
+    previewCommentReply,
     startAutoReplyCron
 } from './services/autoReplyService.js';
 
@@ -461,13 +462,42 @@ app.get('/api/linkedin/auto-reply-stats', async (req, res) => {
     }
 });
 
+// Preview and generate AI draft for an incoming LinkedIn comment
+app.post('/api/linkedin/preview-reply', async (req, res) => {
+    try {
+        const { postId, commentText, postTopic, postContent } = req.body;
+        if (!commentText || !commentText.trim()) {
+            return res.status(400).json({ success: false, error: 'commentText is required' });
+        }
+
+        const preview = await previewCommentReply({
+            postId,
+            commentText: commentText.trim(),
+            postTopic,
+            postContent
+        });
+        res.json({ success: true, preview });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 // Post an AI or custom comment reply to a LinkedIn post
 app.post('/api/linkedin/reply-comment', async (req, res) => {
     try {
-        const { postId, commentText, customReplyText } = req.body;
-        if (!postId) return res.status(400).json({ success: false, error: 'postId is required' });
+        const { postId, linkedinPostUrn, commentText, customReplyText, commenterName, parentCommentUrn } = req.body;
+        if (!postId && !linkedinPostUrn) {
+            return res.status(400).json({ success: false, error: 'postId or linkedinPostUrn is required' });
+        }
 
-        const result = await replyToCommentManual({ postId, commentText, customReplyText });
+        const result = await replyToCommentManual({
+            postId,
+            linkedinPostUrn,
+            commentText,
+            customReplyText,
+            commenterName,
+            parentCommentUrn
+        });
         res.json({ success: true, result });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });

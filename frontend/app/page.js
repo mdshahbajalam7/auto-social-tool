@@ -22,7 +22,12 @@ import {
   Check,
   LayoutTemplate,
   Bot,
-  MessageSquare
+  MessageSquare,
+  Send,
+  MessageCircle,
+  CornerDownRight,
+  ThumbsUp,
+  ArrowRight
 } from 'lucide-react';
 import { Linkedin, Twitter, Instagram, Facebook, YouTube } from '@/components/SocialIcons';
 
@@ -132,9 +137,19 @@ export default function Home() {
     }
   };
 
-  // 3. Auto-Reply Stats & Actions
+  // 3. LinkedIn AI Comments Copilot Dashboard State
   const [autoReplyScanning, setAutoReplyScanning] = useState(false);
   const [autoReplyStats, setAutoReplyStats] = useState({ totalRepliesSent: 0, postsWithRepliesCount: 0 });
+  const [commentPostId, setCommentPostId] = useState('');
+  const [commentCustomUrn, setCommentCustomUrn] = useState('');
+  const [commenterName, setCommenterName] = useState('');
+  const [incomingComment, setIncomingComment] = useState('');
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [replyDraft, setReplyDraft] = useState('');
+  const [altReplyDraft, setAltReplyDraft] = useState('');
+  const [sentiment, setSentiment] = useState('');
+  const [isPostingComment, setIsPostingComment] = useState(false);
+  const [repliesHistory, setRepliesHistory] = useState([]);
 
   const fetchAutoReplyStats = async () => {
     try {
@@ -145,6 +160,20 @@ export default function Home() {
           totalRepliesSent: data.totalRepliesSent || 0,
           postsWithRepliesCount: data.postsWithRepliesCount || 0
         });
+
+        const list = [];
+        (data.history || []).forEach((p) => {
+          (p.repliedComments || []).forEach((r) => {
+            list.push({
+              ...r,
+              postTopic: p.research?.topic || p.niche || 'Discussion Post',
+              postId: p._id,
+              postUrn: p.publishResult?.linkedin?.postId || r.targetUrn || ''
+            });
+          });
+        });
+        list.sort((a, b) => new Date(b.repliedAt || 0) - new Date(a.repliedAt || 0));
+        setRepliesHistory(list);
       }
     } catch (_) {}
   };
@@ -162,7 +191,7 @@ export default function Home() {
         const postsChecked = data.result?.postsChecked || 0;
         setBannerMsg({
           type: 'success',
-          text: `🤖 [LinkedIn AI Auto-Reply] Checked ${postsChecked} post(s). ${replies > 0 ? `Sent ${replies} new AI reply(s) to comments!` : 'Scanned successfully — no new unanswered comments found.'}`
+          text: `🤖 [LinkedIn AI Auto-Reply] Checked ${postsChecked} post(s). ${replies > 0 ? `Sent ${replies} new AI reply(s) to comments!` : 'Scan complete — all comments are up to date.'}`
         });
         fetchAutoReplyStats();
         fetchPosts();
@@ -182,47 +211,89 @@ export default function Home() {
     }
   };
 
-  // Quick Reply Simulation / Manual Submission
-  const [quickReplyOpen, setQuickReplyOpen] = useState(false);
-  const [quickCommentText, setQuickCommentText] = useState('');
-  const [quickSending, setQuickSending] = useState(false);
+  // AI Read & Analyze Comment
+  const handleAnalyzeComment = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    if (!incomingComment.trim()) return;
 
-  const handleSendQuickReply = async (e) => {
-    e.preventDefault();
-    const linkedinPost = posts.find((p) => p.publishResult?.linkedin?.postId);
-    if (!linkedinPost) {
-      setBannerMsg({ type: 'error', text: 'No published LinkedIn post found to reply to!' });
-      return;
-    }
-    if (!quickCommentText.trim()) return;
-
-    setQuickSending(true);
+    setIsAnalyzing(true);
+    setBannerMsg({ type: '', text: '' });
     try {
+      const selectedPost = posts.find((p) => p._id === commentPostId);
+      const payload = {
+        commentText: incomingComment.trim(),
+        postId: commentPostId && commentPostId !== 'custom' ? commentPostId : undefined,
+        postTopic: selectedPost?.research?.topic || selectedPost?.niche || 'Professional Topic',
+        postContent: selectedPost?.content?.linkedin || selectedPost?.content?.twitter || ''
+      };
+
+      const res = await fetch(`${BACKEND_URL}/api/linkedin/preview-reply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+
+      if (data.success && data.preview) {
+        setReplyDraft(data.preview.primaryReply || '');
+        setAltReplyDraft(data.preview.alternateReply || '');
+        setSentiment(data.preview.sentiment || 'Positive');
+      } else {
+        setBannerMsg({ type: 'error', text: data.error || 'Could not analyze comment.' });
+      }
+    } catch (err) {
+      setBannerMsg({ type: 'error', text: 'Error analyzing comment: ' + err.message });
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  // Post Reply LIVE to LinkedIn
+  const handlePublishCommentReply = async () => {
+    if (!replyDraft.trim()) return;
+
+    setIsPostingComment(true);
+    setBannerMsg({ type: '', text: '' });
+    try {
+      const selectedPost = posts.find((p) => p._id === commentPostId);
+      const targetUrn = commentPostId === 'custom'
+        ? commentCustomUrn.trim()
+        : (selectedPost?.publishResult?.linkedin?.postId || '');
+
       const res = await fetch(`${BACKEND_URL}/api/linkedin/reply-comment`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          postId: linkedinPost._id,
-          commentText: quickCommentText.trim()
+          postId: commentPostId && commentPostId !== 'custom' ? commentPostId : undefined,
+          linkedinPostUrn: targetUrn || undefined,
+          commentText: incomingComment.trim(),
+          customReplyText: replyDraft.trim(),
+          commenterName: commenterName.trim() || 'LinkedIn Member'
         })
       });
       const data = await res.json();
+
       if (data.success) {
         setBannerMsg({
           type: 'success',
-          text: `🎉 AI Reply successfully posted LIVE on LinkedIn: "${data.result?.replyText}"`
+          text: `🎉 Comment reply successfully posted LIVE on LinkedIn! AI replied: "${data.result?.replyText}"`
         });
-        setQuickCommentText('');
-        setQuickReplyOpen(false);
+        setIncomingComment('');
+        setReplyDraft('');
+        setAltReplyDraft('');
+        setSentiment('');
         fetchAutoReplyStats();
         fetchPosts();
       } else {
-        setBannerMsg({ type: 'error', text: data.error || 'Failed to post reply' });
+        setBannerMsg({
+          type: 'error',
+          text: data.error || 'Failed to post reply on LinkedIn.'
+        });
       }
     } catch (err) {
-      setBannerMsg({ type: 'error', text: 'Error posting reply: ' + err.message });
+      setBannerMsg({ type: 'error', text: 'Error publishing comment reply: ' + err.message });
     } finally {
-      setQuickSending(false);
+      setIsPostingComment(false);
     }
   };
 
@@ -231,6 +302,13 @@ export default function Home() {
     fetchPosts();
     fetchAutoReplyStats();
   }, []);
+
+  useEffect(() => {
+    if (!commentPostId && posts.length > 0) {
+      const lp = posts.find((p) => p.publishResult?.linkedin?.postId);
+      if (lp) setCommentPostId(lp._id);
+    }
+  }, [posts, commentPostId]);
 
   // Open modal to connect/manage
   const openConnectModal = (platform) => {
@@ -632,78 +710,292 @@ export default function Home() {
             })}
           </div>
 
-          {/* LinkedIn AI Auto-Reply Agent Widget */}
-          <div className="bg-gradient-to-r from-blue-50/70 via-white to-stone-50 border border-blue-200/60 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 shadow-xs">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-[#0a66c2]/10 text-[#0a66c2] flex items-center justify-center shrink-0 border border-blue-200/50">
-                <Bot size={20} />
-              </div>
-              <div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <h4 className="text-xs font-bold text-stone-900 font-mono">
-                    LinkedIn AI Auto-Reply Agent
-                  </h4>
-                  <span className="inline-flex items-center gap-1.5 text-[10px] font-mono font-medium px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                    Active (Every 1 min ⚡)
-                  </span>
+          {/* LinkedIn AI Comments Copilot & Live Auto-Responder Dashboard */}
+          <div className="mt-5 pt-5 border-t border-stone-200/80 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-2 gap-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-[#0a66c2]/10 text-[#0a66c2] flex items-center justify-center shrink-0 border border-blue-200/50">
+                  <Bot size={18} />
                 </div>
-                <p className="text-[11px] text-stone-500 font-sans mt-0.5">
-                  Automatically detects comments on your LinkedIn posts and replies using Google Gemini AI.
-                  {autoReplyStats.totalRepliesSent > 0 && (
-                    <span className="font-semibold text-blue-700 ml-1.5">
-                      • {autoReplyStats.totalRepliesSent} comment(s) replied
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-xs font-bold text-stone-900 font-mono">
+                      LinkedIn AI Comments Copilot & Auto-Responder
+                    </h3>
+                    <span className="inline-flex items-center gap-1.5 text-[10px] font-mono font-medium px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                      Live Cron (Every 1 min ⚡)
                     </span>
-                  )}
-                </p>
+                    {autoReplyStats.totalRepliesSent > 0 && (
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200 font-medium">
+                        {autoReplyStats.totalRepliesSent} Live Replies Posted
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-stone-500 font-sans mt-0.5">
+                    Paste any comment from your LinkedIn post. AI reads the context, analyzes sentiment, drafts a thoughtful reply, and posts live to LinkedIn.
+                  </p>
+                </div>
               </div>
-            </div>
-
-            <div className="flex items-center gap-2 shrink-0">
-              <button
-                type="button"
-                onClick={() => setQuickReplyOpen(!quickReplyOpen)}
-                className="px-3 py-2 rounded-xl text-xs font-mono font-medium text-[#0a66c2] bg-blue-50/80 hover:bg-blue-100 border border-blue-200 transition cursor-pointer"
-              >
-                {quickReplyOpen ? 'Cancel' : '✍️ Quick Reply'}
-              </button>
 
               <button
                 type="button"
                 onClick={handleScanLinkedInReplies}
                 disabled={autoReplyScanning}
-                className="px-4 py-2 rounded-xl text-xs font-mono font-medium text-white bg-[#0a66c2] hover:bg-[#004182] transition shadow-xs flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                className="px-3.5 py-2 rounded-xl text-xs font-mono font-medium text-white bg-[#0a66c2] hover:bg-[#004182] transition shadow-xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 shrink-0 self-start sm:self-auto"
+                title="Trigger automated background scanner to check all recent posts"
               >
                 {autoReplyScanning ? (
-                  <RefreshCw size={13} className="animate-spin" />
+                  <RefreshCw size={12} className="animate-spin" />
                 ) : (
-                  <MessageSquare size={13} />
+                  <RefreshCw size={12} />
                 )}
-                {autoReplyScanning ? 'Scanning...' : 'Scan Now ⚡'}
+                {autoReplyScanning ? 'Scanning Feed...' : 'Scan LinkedIn Feed ⚡'}
               </button>
             </div>
-          </div>
 
-          {quickReplyOpen && (
-            <form onSubmit={handleSendQuickReply} className="mt-3 pt-3 border-t border-blue-200/50 flex flex-col sm:flex-row gap-2">
-              <input
-                type="text"
-                required
-                value={quickCommentText}
-                onChange={(e) => setQuickCommentText(e.target.value)}
-                placeholder="Paste incoming comment here (e.g. 'Great post! How does this compare to traditional tools?')..."
-                className="flex-1 bg-white border border-stone-200 focus:border-blue-400 text-stone-900 rounded-xl px-3.5 py-2 text-xs focus:outline-none"
-              />
-              <button
-                type="submit"
-                disabled={quickSending || !quickCommentText.trim()}
-                className="px-4 py-2 rounded-xl text-xs font-mono font-medium text-white bg-stone-900 hover:bg-stone-800 disabled:opacity-50 shrink-0 cursor-pointer flex items-center justify-center gap-1.5"
-              >
-                {quickSending ? <RefreshCw size={12} className="animate-spin" /> : <Sparkles size={12} />}
-                {quickSending ? 'Replying Live...' : 'Generate & Post Live 🚀'}
-              </button>
-            </form>
-          )}
+            {/* Interactive 2-Column Copilot Studio */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 bg-[#fcfbf8] border border-stone-200 rounded-2xl p-4 sm:p-5">
+              {/* Left Column: Post Selector & Incoming Comment */}
+              <div className="lg:col-span-6 space-y-3.5">
+                <div>
+                  <label className="text-xs font-mono font-medium text-stone-700 block mb-1">
+                    1. Target LinkedIn Post Context
+                  </label>
+                  <select
+                    value={commentPostId}
+                    onChange={(e) => setCommentPostId(e.target.value)}
+                    className="w-full bg-white border border-stone-200 rounded-xl px-3 py-2 text-xs text-stone-900 focus:outline-none focus:border-stone-400 font-sans cursor-pointer"
+                  >
+                    {posts.filter((p) => p.publishResult?.linkedin?.postId).map((p) => (
+                      <option key={p._id} value={p._id}>
+                        {p.research?.topic || p.niche} ({new Date(p.createdAt).toLocaleDateString()})
+                      </option>
+                    ))}
+                    <option value="custom">✏️ Enter Custom LinkedIn Post URL / URN</option>
+                  </select>
+                </div>
+
+                {commentPostId === 'custom' && (
+                  <div>
+                    <label className="text-xs font-mono font-medium text-stone-700 block mb-1">
+                      LinkedIn Post URL or URN
+                    </label>
+                    <input
+                      type="text"
+                      value={commentCustomUrn}
+                      onChange={(e) => setCommentCustomUrn(e.target.value)}
+                      placeholder="e.g. https://www.linkedin.com/feed/update/urn:li:activity:... or urn:li:share:..."
+                      className="w-full bg-white border border-stone-200 rounded-xl px-3 py-2 text-xs text-stone-900 focus:outline-none focus:border-stone-400 font-mono"
+                    />
+                  </div>
+                )}
+
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-mono font-medium text-stone-700">
+                      2. Commenter Name (Optional)
+                    </label>
+                    <span className="text-[10px] text-stone-400 font-mono">e.g. Rahul Sharma</span>
+                  </div>
+                  <input
+                    type="text"
+                    value={commenterName}
+                    onChange={(e) => setCommenterName(e.target.value)}
+                    placeholder="e.g. Community Member or Author Name"
+                    className="w-full bg-white border border-stone-200 rounded-xl px-3 py-2 text-xs text-stone-900 focus:outline-none focus:border-stone-400 font-sans"
+                  />
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-mono font-medium text-stone-700">
+                      3. Paste User Comment from LinkedIn *
+                    </label>
+                    <span className="text-[10px] text-stone-400 font-mono">
+                      {incomingComment.length} chars
+                    </span>
+                  </div>
+                  <textarea
+                    rows={3}
+                    value={incomingComment}
+                    onChange={(e) => setIncomingComment(e.target.value)}
+                    placeholder="Paste the user's comment here (e.g. 'Loved this breakdown! How do you recommend scaling this with a smaller team?')..."
+                    className="w-full bg-white border border-stone-200 rounded-xl p-3 text-xs text-stone-900 focus:outline-none focus:border-stone-400 font-sans resize-y leading-relaxed"
+                  />
+                </div>
+
+                {/* Quick-fill sample pills */}
+                <div className="space-y-1">
+                  <span className="text-[10px] font-mono text-stone-400 uppercase tracking-wider block">
+                    Quick Sample Questions:
+                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {[
+                      'Great insights! How can startups adopt this without huge cost?',
+                      'Totally agree, especially on the workflow automation aspect.',
+                      'How does this integrate with existing tools and APIs?'
+                    ].map((sample) => (
+                      <button
+                        key={sample}
+                        type="button"
+                        onClick={() => setIncomingComment(sample)}
+                        className="text-[10px] font-sans text-stone-600 bg-white hover:bg-stone-100 border border-stone-200/80 px-2 py-1 rounded-lg transition text-left cursor-pointer truncate max-w-full"
+                      >
+                        "{sample}"
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleAnalyzeComment}
+                  disabled={isAnalyzing || !incomingComment.trim()}
+                  className="w-full py-2.5 rounded-xl text-xs font-mono font-medium text-white bg-stone-900 hover:bg-stone-800 disabled:opacity-50 transition shadow-xs flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  {isAnalyzing ? (
+                    <RefreshCw size={13} className="animate-spin" />
+                  ) : (
+                    <Sparkles size={13} className="text-yellow-400" />
+                  )}
+                  {isAnalyzing ? 'Reading & Analyzing Comment...' : '🧠 AI Read & Analyze Comment'}
+                </button>
+              </div>
+
+              {/* Right Column: AI Analysis, Live Editor & 1-Click Publisher */}
+              <div className="lg:col-span-6 flex flex-col justify-between border-t lg:border-t-0 lg:border-l border-stone-200/70 pt-4 lg:pt-0 lg:pl-5 space-y-3.5">
+                {replyDraft ? (
+                  <div className="space-y-3 flex-1 flex flex-col justify-between">
+                    <div className="space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-mono font-medium text-stone-700 flex items-center gap-1.5">
+                          <span>4. AI Crafted Reply</span>
+                          <span className="text-[10px] text-stone-400 font-normal">(Editable)</span>
+                        </span>
+                        {sentiment && (
+                          <span className="text-[10px] font-mono font-medium px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
+                            Sentiment: {sentiment}
+                          </span>
+                        )}
+                      </div>
+
+                      <textarea
+                        rows={4}
+                        value={replyDraft}
+                        onChange={(e) => setReplyDraft(e.target.value)}
+                        placeholder="AI response draft..."
+                        className="w-full bg-white border border-stone-200 rounded-xl p-3 text-xs text-stone-900 focus:outline-none focus:border-stone-400 font-sans resize-y leading-relaxed"
+                      />
+
+                      {altReplyDraft && (
+                        <div className="p-2.5 rounded-xl bg-white border border-stone-200/80 text-[11px] space-y-1">
+                          <div className="flex items-center justify-between">
+                            <span className="font-mono text-[10px] text-stone-400 uppercase font-medium">
+                              Alternative Suggestion:
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const current = replyDraft;
+                                setReplyDraft(altReplyDraft);
+                                setAltReplyDraft(current);
+                              }}
+                              className="text-[10px] font-mono text-blue-600 hover:text-blue-800 underline cursor-pointer"
+                            >
+                              Swap Draft
+                            </button>
+                          </div>
+                          <p className="text-stone-600 font-sans italic">
+                            "{altReplyDraft}"
+                          </p>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="pt-2">
+                      <button
+                        type="button"
+                        onClick={handlePublishCommentReply}
+                        disabled={isPostingComment || !replyDraft.trim()}
+                        className="w-full py-3 rounded-xl text-xs font-mono font-bold text-white bg-[#0a66c2] hover:bg-[#004182] disabled:opacity-50 transition shadow-sm flex items-center justify-center gap-2 cursor-pointer"
+                      >
+                        {isPostingComment ? (
+                          <RefreshCw size={14} className="animate-spin" />
+                        ) : (
+                          <Send size={14} />
+                        )}
+                        {isPostingComment ? 'Posting LIVE to LinkedIn...' : '🚀 Publish Reply LIVE on LinkedIn'}
+                      </button>
+                      <p className="text-[10px] text-stone-400 font-sans text-center mt-1.5">
+                        Will post directly as a live comment reply to your target LinkedIn post URN.
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="h-full min-h-[220px] rounded-xl border border-dashed border-stone-200/80 bg-white/60 p-6 flex flex-col items-center justify-center text-center space-y-2">
+                    <div className="w-10 h-10 rounded-xl bg-stone-100 text-stone-400 flex items-center justify-center">
+                      <MessageSquare size={18} />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-mono font-bold text-stone-700">
+                        AI Comment Copilot Ready
+                      </h4>
+                      <p className="text-[11px] text-stone-400 font-sans max-w-xs mt-1">
+                        Paste any LinkedIn comment on the left and click <span className="font-mono text-stone-600 font-semibold">"AI Read & Analyze Comment"</span> to review sentiment analysis and editable AI drafts.
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Live Replies Ledger: Recent Activity */}
+            {repliesHistory.length > 0 && (
+              <div className="bg-white border border-stone-200/80 rounded-2xl p-4 space-y-3">
+                <div className="flex items-center justify-between pb-2 border-b border-stone-100">
+                  <span className="text-xs font-mono font-bold text-stone-700 flex items-center gap-1.5">
+                    <span>⚡ Live Replies Ledger ({repliesHistory.length})</span>
+                  </span>
+                  <span className="text-[10px] font-mono text-stone-400">
+                    Latest Activity
+                  </span>
+                </div>
+
+                <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                  {repliesHistory.map((item, idx) => (
+                    <div
+                      key={item.commentId || idx}
+                      className="p-3 rounded-xl border border-stone-200/70 bg-[#fcfbf8] text-xs space-y-1.5"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-mono text-[11px] font-bold text-stone-800 truncate">
+                          {item.commenterName || 'LinkedIn Member'}:
+                        </span>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <span className="text-[10px] font-mono text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.2 rounded-full">
+                            ✓ Published Live
+                          </span>
+                          <span className="text-[10px] font-mono text-stone-400">
+                            {item.repliedAt ? new Date(item.repliedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Recent'}
+                          </span>
+                        </div>
+                      </div>
+
+                      <p className="text-stone-600 text-[11px] font-sans pl-2 border-l-2 border-stone-200">
+                        "{item.commentText}"
+                      </p>
+
+                      <div className="pt-1 flex items-start gap-1.5 text-stone-900 text-[11px] font-sans font-medium">
+                        <CornerDownRight size={13} className="text-[#0a66c2] shrink-0 mt-0.5" />
+                        <span>{item.replyText}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         </section>
 
         {/* 3. Action Studio: Research & Generate */}
