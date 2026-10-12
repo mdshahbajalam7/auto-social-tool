@@ -24,7 +24,7 @@ import {
 } from 'lucide-react';
 import { Linkedin, Twitter, Instagram, Facebook, YouTube } from '@/components/SocialIcons';
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5000';
+const BACKEND_URL = (process.env.NEXT_PUBLIC_BACKEND_URL || 'https://auto-social-tool-ctzn.vercel.app').replace(/\/$/, '');
 
 const PLATFORM_CONFIG = {
   linkedin: {
