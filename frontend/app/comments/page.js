@@ -356,22 +356,27 @@ export default function CommentsPage() {
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <label className="text-xs font-mono font-bold text-stone-700">
-                    2. Direct Comment Link / URN (Optional - For Threaded Reply)
+                    2. Comment Link for Threaded Reply (Comment ke andar reply karne ke liye)
                   </label>
-                  <span className="text-[10px] text-stone-400 font-mono">... &gt; Copy link to comment</span>
+                  <span className="text-[10px] text-stone-500 font-mono font-medium">··· &gt; Copy link to comment</span>
                 </div>
                 <input
                   type="text"
                   value={commentLinkOrUrn}
                   onChange={(e) => setCommentLinkOrUrn(e.target.value)}
-                  placeholder="Paste comment link, e.g. https://www.linkedin.com/feed/update/... or urn:li:comment:..."
+                  placeholder="Paste comment link from LinkedIn (··· > Copy link to comment)"
                   className="w-full bg-[#fcfbf8] border border-stone-200 rounded-xl px-3.5 py-2 text-xs text-stone-900 focus:outline-none focus:border-stone-400 font-mono"
                 />
-                {commentLinkOrUrn.includes('comment') && (
-                  <p className="text-[10px] font-mono text-emerald-700 mt-1 flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                    Target comment thread detected! AI reply will nest directly under this user.
+                {commentLinkOrUrn.trim() ? (
+                  <p className="text-[11px] font-sans text-emerald-800 mt-1.5 flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 px-2.5 py-1.5 rounded-lg">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                    <span><strong>✅ Threaded Reply Mode:</strong> Yeh reply direct user ke comment ke andar (nested thread me) jayega!</span>
                   </p>
+                ) : (
+                  <div className="text-[11px] font-sans text-amber-800 mt-1.5 flex items-start gap-1.5 bg-amber-50 border border-amber-200/80 px-2.5 py-1.5 rounded-lg leading-snug">
+                    <span className="shrink-0">💡</span>
+                    <span><strong>Comment ke andar reply ke liye:</strong> LinkedIn par comment ke 3 dots (<strong>···</strong>) par click karein &gt; <em>"Copy link to comment"</em> karein &gt; aur yahan paste karein. Agar link nahi dalenge, toh LinkedIn isko bahar post level par dalega.</span>
+                  </div>
                 )}
               </div>
 
@@ -502,17 +507,27 @@ export default function CommentsPage() {
                       type="button"
                       onClick={handlePublishCommentReply}
                       disabled={isPostingComment || !replyDraft.trim()}
-                      className="w-full py-3.5 rounded-xl text-xs font-mono font-bold text-white bg-[#0a66c2] hover:bg-[#004182] disabled:opacity-50 transition shadow-sm flex items-center justify-center gap-2 cursor-pointer"
+                      className={`w-full py-3.5 rounded-xl text-xs font-mono font-bold text-white transition shadow-sm flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 ${
+                        commentLinkOrUrn.trim()
+                          ? 'bg-emerald-600 hover:bg-emerald-700'
+                          : 'bg-[#0a66c2] hover:bg-[#004182]'
+                      }`}
                     >
                       {isPostingComment ? (
                         <RefreshCw size={14} className="animate-spin" />
                       ) : (
                         <Send size={14} />
                       )}
-                      {isPostingComment ? 'Posting LIVE to LinkedIn...' : '🚀 Publish Reply LIVE on LinkedIn'}
+                      {isPostingComment
+                        ? 'Posting LIVE to LinkedIn...'
+                        : commentLinkOrUrn.trim()
+                          ? '💬 Post Reply Inside Comment Thread'
+                          : '🚀 Post as Root Comment (Outside Thread)'}
                     </button>
-                    <p className="text-[10px] text-stone-400 font-sans text-center mt-1.5">
-                      Will post directly as a live comment reply to your target LinkedIn post URN.
+                    <p className="text-[10px] text-stone-500 font-sans text-center mt-1.5">
+                      {commentLinkOrUrn.trim()
+                        ? '🎯 Target comment thread linked: Replying directly inside the thread under this comment.'
+                        : 'ℹ️ No comment link: Will post directly on the post outside any specific thread.'}
                     </p>
                   </div>
                 </div>

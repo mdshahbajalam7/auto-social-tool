@@ -147,22 +147,74 @@ export async function fetchLinkedInComments({ targetUrn, token }) {
 /**
  * Parse LinkedIn comment URL or URN to extract postUrn and commentUrn
  */
-export function parseLinkedInCommentUrl(input) {
+export function parseLinkedInCommentUrl(input, fallbackPostUrn = '') {
     if (!input || typeof input !== 'string') return { postUrn: null, commentUrn: null };
-    const decoded = decodeURIComponent(input.trim());
+    let decoded = input.trim();
+    try {
+        decoded = decodeURIComponent(decoded);
+    } catch (_) {}
 
-    // Extract comment URN (e.g. urn:li:comment:(activity:...,...) or urn:li:comment:123)
     let commentUrn = null;
-    const commentMatch = decoded.match(/urn:li:comment:\([^)]+\)/i) || decoded.match(/urn:li:comment:[0-9]+/i);
-    if (commentMatch) {
-        commentUrn = commentMatch[0];
-    }
-
-    // Extract post URN (e.g. urn:li:activity:..., urn:li:share:..., urn:li:ugcPost:...)
     let postUrn = null;
-    const postMatch = decoded.match(/urn:li:(?:share|ugcPost|activity):[0-9]+/i);
+
+    // 1. Extract Post URN (activity, share, ugcPost)
+    const postMatch = decoded.match(/urn:li:(?:activity|share|ugcPost):[0-9]+/i);
     if (postMatch) {
         postUrn = postMatch[0];
+    } else {
+        const actNumMatch = decoded.match(/activity:([0-9]+)/i);
+        if (actNumMatch) {
+            postUrn = `urn:li:activity:${actNumMatch[1]}`;
+        }
+    }
+
+    const effectivePostUrn = postUrn || fallbackPostUrn || '';
+
+    // 2. Format A: Modern fsd_comment (e.g. urn:li:fsd_comment:(7515364667288973313,urn:li:activity:7515363685549211649))
+    const fsdMatch = decoded.match(/fsd_comment:\(([0-9]+),([^)]+)\)/i);
+    if (fsdMatch) {
+        const commentId = fsdMatch[1];
+        let actUrn = fsdMatch[2].trim();
+        if (!actUrn.startsWith('urn:li:')) actUrn = `urn:li:${actUrn}`;
+        commentUrn = `urn:li:comment:(${actUrn},${commentId})`;
+        if (!postUrn) postUrn = actUrn;
+    }
+
+    // 3. Format B: Standard composite comment (e.g. urn:li:comment:(urn:li:activity:123,456) or urn:li:comment:(activity:123,456))
+    if (!commentUrn) {
+        const compMatch = decoded.match(/urn:li:comment:\(([^,]+),([0-9]+)\)/i);
+        if (compMatch) {
+            let actPart = compMatch[1].trim();
+            const commentId = compMatch[2].trim();
+            if (!actPart.startsWith('urn:li:')) {
+                if (actPart.startsWith('activity:')) actPart = `urn:li:${actPart}`;
+                else actPart = `urn:li:activity:${actPart}`;
+            }
+            commentUrn = `urn:li:comment:(${actPart},${commentId})`;
+            if (!postUrn) postUrn = actPart;
+        }
+    }
+
+    // 4. Format C: Simple comment URN (e.g. urn:li:comment:7515364667288973313)
+    if (!commentUrn) {
+        const simpleCommentMatch = decoded.match(/urn:li:comment:([0-9]+)/i);
+        if (simpleCommentMatch) {
+            const commentId = simpleCommentMatch[1];
+            if (effectivePostUrn) {
+                commentUrn = `urn:li:comment:(${effectivePostUrn},${commentId})`;
+            } else {
+                commentUrn = `urn:li:comment:${commentId}`;
+            }
+        }
+    }
+
+    // 5. Format D: Pure numeric comment ID (e.g. 7515364667288973313)
+    if (!commentUrn && /^[0-9]{15,25}$/.test(decoded)) {
+        if (effectivePostUrn) {
+            commentUrn = `urn:li:comment:(${effectivePostUrn},${decoded})`;
+        } else {
+            commentUrn = `urn:li:comment:${decoded}`;
+        }
     }
 
     return { postUrn, commentUrn };
@@ -268,14 +320,14 @@ export async function replyToCommentManual({ postId, linkedinPostUrn, commentTex
 
     let finalParentComment = (parentCommentUrn || '').trim();
 
-    // If parentCommentUrn is a URL, extract both comment URN and post URN
-    if (finalParentComment.startsWith('http')) {
-        const parsed = parseLinkedInCommentUrl(finalParentComment);
+    // If parentCommentUrn is provided (URL, URN, or ID), parse and normalize
+    if (finalParentComment) {
+        const parsed = parseLinkedInCommentUrl(finalParentComment, targetUrn);
         if (parsed.commentUrn) finalParentComment = parsed.commentUrn;
         if (parsed.postUrn && !targetUrn) targetUrn = parsed.postUrn;
     }
 
-    if (targetUrn.startsWith('http')) {
+    if (targetUrn && targetUrn.startsWith('http')) {
         const parsed = parseLinkedInCommentUrl(targetUrn);
         if (parsed.postUrn) targetUrn = parsed.postUrn;
         if (parsed.commentUrn && !finalParentComment) finalParentComment = parsed.commentUrn;
