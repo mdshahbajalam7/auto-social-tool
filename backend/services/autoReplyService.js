@@ -349,6 +349,54 @@ export async function postLinkedInReply({ targetUrn, token, authorUrn, replyText
 }
 
 /**
+ * Like / React to a LinkedIn comment or post
+ */
+export async function likeLinkedInComment({ targetUrn, token, authorUrn }) {
+    if (!targetUrn || !token || !authorUrn) return { success: false, error: 'Missing parameters' };
+    const encodedUrn = encodeURIComponent(targetUrn);
+
+    const payload = {
+        actor: authorUrn,
+        reactionType: 'LIKE'
+    };
+
+    // Method 1: v2 reactions
+    try {
+        await axios.post(`https://api.linkedin.com/v2/socialActions/${encodedUrn}/reactions`, payload, {
+            headers: {
+                Authorization: `Bearer ${token}`,
+                'X-Restli-Protocol-Version': '2.0.0',
+                'Content-Type': 'application/json'
+            },
+            timeout: 10000
+        });
+        console.log(`❤️ [LinkedIn] Auto-liked comment: ${targetUrn}`);
+        return { success: true };
+    } catch (v2Err) {
+        console.warn('ℹ️ [LinkedIn] v2 like note:', v2Err.response?.data?.message || v2Err.message);
+    }
+
+    // Method 2: REST reactions fallback
+    try {
+        await axios.post(`https://api.linkedin.com/rest/socialActions/${encodedUrn}/reactions`, payload, {
+            headers: {
+                Authorization: `Bearer ${token}`,
+                'LinkedIn-Version': '202502',
+                'X-Restli-Protocol-Version': '2.0.0',
+                'Content-Type': 'application/json'
+            },
+            timeout: 10000
+        });
+        console.log(`❤️ [LinkedIn REST] Auto-liked comment: ${targetUrn}`);
+        return { success: true };
+    } catch (restErr) {
+        // Suppress silently if already liked or permission not granted
+    }
+
+    return { success: false };
+}
+
+/**
  * Manually submit a comment reply using AI or custom text
  */
 export async function replyToCommentManual({ postId, linkedinPostUrn, commentText, customReplyText, commenterName, parentCommentUrn }) {
@@ -428,6 +476,11 @@ export async function replyToCommentManual({ postId, linkedinPostUrn, commentTex
 
     if (!postRes.success) {
         throw new Error(postRes.error || 'Failed to post reply to LinkedIn');
+    }
+
+    // 5. Auto-Like the user's comment
+    if (finalParentComment) {
+        likeLinkedInComment({ targetUrn: finalParentComment, token, authorUrn }).catch(() => {});
     }
 
     const replyRecord = {
@@ -528,6 +581,9 @@ export async function processPostComments(post, account) {
             repliesCount++;
             newRepliesList.push(replyRecord);
             console.log(`🎉 [Auto-Reply] Replied to comment ${comment.id}: "${aiReply.slice(0, 60)}..."`);
+
+            // Auto-like the comment
+            likeLinkedInComment({ targetUrn: comment.id, token, authorUrn }).catch(() => {});
         }
     }
 
