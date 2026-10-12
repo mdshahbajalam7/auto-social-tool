@@ -3,16 +3,21 @@ import OpenAI from 'openai';
 import sharp from 'sharp';
 import axios from 'axios';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const uploadsDir = path.resolve(__dirname, '../uploads');
+const uploadsDir = process.env.VERCEL
+    ? path.join(os.tmpdir(), 'uploads')
+    : path.resolve(__dirname, '../uploads');
 
-if (!fs.existsSync(uploadsDir)) {
-    fs.mkdirSync(uploadsDir, { recursive: true });
-}
+try {
+    if (!fs.existsSync(uploadsDir)) {
+        fs.mkdirSync(uploadsDir, { recursive: true });
+    }
+} catch (_) {}
 
 /**
  * Generate AI image directly from the generated text, topic, and summary.

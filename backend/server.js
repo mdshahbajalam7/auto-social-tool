@@ -23,20 +23,36 @@ connectDB();
 
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const uploadsDir = path.join(__dirname, 'uploads');
-if (!fs.existsSync(uploadsDir)) {
-    fs.mkdirSync(uploadsDir, { recursive: true });
+const uploadsDir = process.env.VERCEL
+    ? path.join(os.tmpdir(), 'uploads')
+    : path.join(__dirname, 'uploads');
+
+try {
+    if (!fs.existsSync(uploadsDir)) {
+        fs.mkdirSync(uploadsDir, { recursive: true });
+    }
+} catch (fsErr) {
+    console.warn('⚠️ uploadsDir warning:', fsErr.message);
 }
 
 const app = express();
 app.use(cors({ origin: '*' }));
 app.use(express.json());
 app.use('/uploads', express.static(uploadsDir));
+
+// Connect DB middleware for Serverless invocations
+app.use(async (req, res, next) => {
+    try {
+        await connectDB();
+    } catch (_) {}
+    next();
+});
 
 // ==========================================
 // 0. Deployment Test & Health Check Route (GET /)
@@ -386,6 +402,10 @@ app.post('/api/publish-all', async (req, res) => {
 
 // Start Server
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-    console.log(`✅ Backend server active on port ${PORT}`);
-});
+if (!process.env.VERCEL) {
+    app.listen(PORT, () => {
+        console.log(`✅ Backend server active on port ${PORT}`);
+    });
+}
+
+export default app;
