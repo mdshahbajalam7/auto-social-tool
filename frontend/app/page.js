@@ -601,7 +601,7 @@ export default function Home() {
                   </h4>
                   <span className="inline-flex items-center gap-1.5 text-[10px] font-mono font-medium px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                    Active (Every 10 min)
+                    Active (Every 1 min ⚡)
                   </span>
                 </div>
                 <p className="text-[11px] text-stone-500 font-sans mt-0.5">

@@ -275,14 +275,20 @@ export async function processPostComments(post, account) {
     };
 }
 
+let isScanning = false;
+
 /**
  * Scan all recently published LinkedIn posts and auto-reply to any new comments
  */
 export async function autoReplyAllRecentLinkedInPosts() {
+    if (isScanning) {
+        return { success: false, reason: 'Previous comment scan still running' };
+    }
+
+    isScanning = true;
     try {
         const account = await Account.findOne({ platform: 'linkedin', isConnected: true });
         if (!account && !process.env.LINKEDIN_ACCESS_TOKEN) {
-            console.log('ℹ️ [Auto-Reply] LinkedIn is not connected, skipping scan.');
             return { success: false, reason: 'LinkedIn not connected' };
         }
 
@@ -294,7 +300,9 @@ export async function autoReplyAllRecentLinkedInPosts() {
             createdAt: { $gte: fourteenDaysAgo }
         }).sort({ createdAt: -1 });
 
-        console.log(`🚀 [Auto-Reply Scheduler] Checking ${posts.length} published LinkedIn post(s) for comments...`);
+        if (posts.length === 0) {
+            return { success: true, postsChecked: 0, totalNewReplies: 0 };
+        }
 
         let totalNewReplies = 0;
         const processedPosts = [];
@@ -311,7 +319,10 @@ export async function autoReplyAllRecentLinkedInPosts() {
             });
         }
 
-        console.log(`✅ [Auto-Reply Scheduler] Check complete. Total new AI replies sent: ${totalNewReplies}`);
+        if (totalNewReplies > 0) {
+            console.log(`🎉 [Auto-Reply Scheduler] Real-time Scan: Successfully posted ${totalNewReplies} new AI reply(s) live on LinkedIn!`);
+        }
+
         return {
             success: true,
             postsChecked: posts.length,
@@ -321,21 +332,27 @@ export async function autoReplyAllRecentLinkedInPosts() {
     } catch (err) {
         console.error('❌ [Auto-Reply Scheduler] Error during auto-reply execution:', err.message);
         return { success: false, error: err.message };
+    } finally {
+        isScanning = false;
     }
 }
 
 /**
- * Initialize Background Cron Job (Runs every 10 minutes)
+ * Initialize Background Cron Job (Runs every 1 minute)
  */
 let cronJob = null;
 export function startAutoReplyCron() {
     if (cronJob) return;
 
-    // Run every 10 minutes: '*/10 * * * *'
-    cronJob = cron.schedule('*/10 * * * *', async () => {
-        console.log('⏰ [Cron] Triggering automatic LinkedIn comment scan & reply...');
+    // Run every 1 minute: '* * * * *'
+    cronJob = cron.schedule('* * * * *', async () => {
         await autoReplyAllRecentLinkedInPosts();
     });
 
-    console.log('⏰ [Cron] LinkedIn AI Auto-Reply background scheduler active (runs every 10 minutes)!');
+    console.log('⚡ [Cron] LinkedIn AI Auto-Reply active: Checking for new comments EVERY 1 MINUTE!');
+
+    // Run initial scan 5 seconds after startup
+    setTimeout(() => {
+        autoReplyAllRecentLinkedInPosts().catch(() => {});
+    }, 5000);
 }
