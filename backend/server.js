@@ -15,11 +15,19 @@ import {
     publishToInstagram,
     publishToFacebook
 } from './services/socialPublisher.js';
+import {
+    autoReplyAllRecentLinkedInPosts,
+    processPostComments,
+    startAutoReplyCron
+} from './services/autoReplyService.js';
 
 dotenv.config();
 
 // Connect MongoDB
 connectDB();
+
+// Start LinkedIn AI Auto-Reply background scheduler (checks every 10 min)
+startAutoReplyCron();
 
 import path from 'path';
 import fs from 'fs';
@@ -50,7 +58,7 @@ app.use('/uploads', express.static(uploadsDir));
 app.use(async (req, res, next) => {
     try {
         await connectDB();
-    } catch (_) {}
+    } catch (_) { }
     next();
 });
 
@@ -148,7 +156,7 @@ Post.deleteMany({ status: { $ne: 'published' } }).then((res) => {
     if (res.deletedCount > 0) {
         console.log(`🧹 Cleaned up ${res.deletedCount} non-published draft(s) from database.`);
     }
-}).catch(() => {});
+}).catch(() => { });
 
 // ==========================================
 // 2. Posts CRUD Endpoints (ONLY PUBLISHED POSTS)
@@ -267,7 +275,7 @@ app.post('/api/accounts/connect', async (req, res) => {
                             break;
                         }
                     }
-                } catch (_) {}
+                } catch (_) { }
             }
         }
 
@@ -396,6 +404,58 @@ app.post('/api/publish-all', async (req, res) => {
         });
     } catch (error) {
         console.error('Multi-channel publish error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==========================================
+// 6. LinkedIn AI Auto-Reply to Comments
+// ==========================================
+
+// Trigger full scan & reply across all recent published LinkedIn posts
+app.post('/api/linkedin/auto-reply-scan', async (req, res) => {
+    try {
+        console.log('⚡ [API] Manual LinkedIn comment scan requested...');
+        const result = await autoReplyAllRecentLinkedInPosts();
+        res.json({ success: true, result });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Trigger comment scan & reply for a specific post
+app.post('/api/linkedin/posts/:id/auto-reply', async (req, res) => {
+    try {
+        const post = await Post.findById(req.params.id);
+        if (!post) return res.status(404).json({ success: false, error: 'Post not found' });
+
+        const account = await Account.findOne({ platform: 'linkedin', isConnected: true });
+        const result = await processPostComments(post, account);
+        res.json({ success: true, result });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get auto-reply stats & history
+app.get('/api/linkedin/auto-reply-stats', async (req, res) => {
+    try {
+        const postsWithReplies = await Post.find({
+            'repliedComments.0': { $exists: true }
+        }).select('research.topic niche repliedComments createdAt publishResult.linkedin');
+
+        const totalReplies = postsWithReplies.reduce(
+            (acc, p) => acc + (p.repliedComments?.length || 0),
+            0
+        );
+
+        res.json({
+            success: true,
+            totalRepliesSent: totalReplies,
+            postsWithRepliesCount: postsWithReplies.length,
+            history: postsWithReplies
+        });
+    } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 });

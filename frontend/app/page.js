@@ -20,7 +20,9 @@ import {
   Globe,
   Copy,
   Check,
-  LayoutTemplate
+  LayoutTemplate,
+  Bot,
+  MessageSquare
 } from 'lucide-react';
 import { Linkedin, Twitter, Instagram, Facebook, YouTube } from '@/components/SocialIcons';
 
@@ -130,9 +132,60 @@ export default function Home() {
     }
   };
 
+  // 3. Auto-Reply Stats & Actions
+  const [autoReplyScanning, setAutoReplyScanning] = useState(false);
+  const [autoReplyStats, setAutoReplyStats] = useState({ totalRepliesSent: 0, postsWithRepliesCount: 0 });
+
+  const fetchAutoReplyStats = async () => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/linkedin/auto-reply-stats`);
+      const data = await res.json();
+      if (data.success) {
+        setAutoReplyStats({
+          totalRepliesSent: data.totalRepliesSent || 0,
+          postsWithRepliesCount: data.postsWithRepliesCount || 0
+        });
+      }
+    } catch (_) {}
+  };
+
+  const handleScanLinkedInReplies = async () => {
+    setAutoReplyScanning(true);
+    setBannerMsg({ type: '', text: '' });
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/linkedin/auto-reply-scan`, {
+        method: 'POST'
+      });
+      const data = await res.json();
+      if (data.success) {
+        const replies = data.result?.totalNewReplies || 0;
+        const postsChecked = data.result?.postsChecked || 0;
+        setBannerMsg({
+          type: 'success',
+          text: `🤖 [LinkedIn AI Auto-Reply] Checked ${postsChecked} post(s). ${replies > 0 ? `Sent ${replies} new AI reply(s) to comments!` : 'Scanned successfully — no new unanswered comments found.'}`
+        });
+        fetchAutoReplyStats();
+        fetchPosts();
+      } else {
+        setBannerMsg({
+          type: 'error',
+          text: data.error || data.result?.reason || 'Failed to scan LinkedIn comments.'
+        });
+      }
+    } catch (err) {
+      setBannerMsg({
+        type: 'error',
+        text: 'Error scanning LinkedIn comments: ' + err.message
+      });
+    } finally {
+      setAutoReplyScanning(false);
+    }
+  };
+
   useEffect(() => {
     fetchAccounts();
     fetchPosts();
+    fetchAutoReplyStats();
   }, []);
 
   // Open modal to connect/manage
@@ -533,6 +586,48 @@ export default function Home() {
                 </div>
               );
             })}
+          </div>
+
+          {/* LinkedIn AI Auto-Reply Agent Widget */}
+          <div className="bg-gradient-to-r from-blue-50/70 via-white to-stone-50 border border-blue-200/60 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 shadow-xs">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-[#0a66c2]/10 text-[#0a66c2] flex items-center justify-center shrink-0 border border-blue-200/50">
+                <Bot size={20} />
+              </div>
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h4 className="text-xs font-bold text-stone-900 font-mono">
+                    LinkedIn AI Auto-Reply Agent
+                  </h4>
+                  <span className="inline-flex items-center gap-1.5 text-[10px] font-mono font-medium px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    Active (Every 10 min)
+                  </span>
+                </div>
+                <p className="text-[11px] text-stone-500 font-sans mt-0.5">
+                  Automatically detects comments on your LinkedIn posts and replies using Google Gemini AI.
+                  {autoReplyStats.totalRepliesSent > 0 && (
+                    <span className="font-semibold text-blue-700 ml-1.5">
+                      • {autoReplyStats.totalRepliesSent} comment(s) replied
+                    </span>
+                  )}
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleScanLinkedInReplies}
+              disabled={autoReplyScanning}
+              className="px-4 py-2 rounded-xl text-xs font-mono font-medium text-white bg-[#0a66c2] hover:bg-[#004182] transition shadow-xs flex items-center justify-center gap-2 shrink-0 cursor-pointer disabled:opacity-50"
+            >
+              {autoReplyScanning ? (
+                <RefreshCw size={13} className="animate-spin" />
+              ) : (
+                <MessageSquare size={13} />
+              )}
+              {autoReplyScanning ? 'Scanning Comments...' : 'Scan & Reply Now ⚡'}
+            </button>
           </div>
         </section>
 

@@ -39,7 +39,15 @@ const PostSchema = new mongoose.Schema(
             impressions: { type: Number, default: 0 },
             likes: { type: Number, default: 0 },
             shares: { type: Number, default: 0 }
-        }
+        },
+        repliedComments: [
+            {
+                commentId: { type: String },
+                commentText: { type: String },
+                replyText: { type: String },
+                repliedAt: { type: Date, default: Date.now }
+            }
+        ]
     },
     {
         timestamps: true // Automatically adds createdAt and updatedAt
