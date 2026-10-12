@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import Link from 'next/link';
 import {
   Sparkles,
   RefreshCw,
@@ -641,6 +642,21 @@ export default function Home() {
               </p>
             </div>
           </div>
+
+          {/* Navigation Bar */}
+          <div className="flex items-center gap-2 self-start md:self-auto">
+            <div className="px-3.5 py-2 rounded-xl text-xs font-mono font-bold text-white bg-stone-900 shadow-xs flex items-center gap-1.5">
+              📝 Content Studio
+            </div>
+            <Link
+              href="/comments"
+              className="px-3.5 py-2 rounded-xl text-xs font-mono font-medium text-blue-700 bg-blue-50/80 hover:bg-blue-100 border border-blue-200 transition shadow-xs flex items-center gap-2 cursor-pointer"
+            >
+              <Bot size={14} className="text-[#0a66c2]" />
+              <span>AI Comments Copilot</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            </Link>
+          </div>
         </header>
 
         {/* 2. Connected Social Profiles: Clean Classic Cards */}
@@ -714,313 +730,52 @@ export default function Home() {
             })}
           </div>
 
-          {/* LinkedIn AI Comments Copilot & Live Auto-Responder Dashboard */}
-          <div className="mt-5 pt-5 border-t border-stone-200/80 space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-2 gap-3">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-[#0a66c2]/10 text-[#0a66c2] flex items-center justify-center shrink-0 border border-blue-200/50">
-                  <Bot size={18} />
-                </div>
-                <div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="text-xs font-bold text-stone-900 font-mono">
-                      LinkedIn AI Comments Copilot & Auto-Responder
-                    </h3>
-                    <span className="inline-flex items-center gap-1.5 text-[10px] font-mono font-medium px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                      Live Cron (Every 1 min ⚡)
-                    </span>
-                    {autoReplyStats.totalRepliesSent > 0 && (
-                      <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200 font-medium">
-                        {autoReplyStats.totalRepliesSent} Live Replies Posted
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-[11px] text-stone-500 font-sans mt-0.5">
-                    Paste any comment from your LinkedIn post. AI reads the context, analyzes sentiment, drafts a thoughtful reply, and posts live to LinkedIn.
-                  </p>
-                </div>
+          {/* LinkedIn AI Auto-Reply Launcher Card */}
+          <div className="mt-5 pt-4 border-t border-stone-200/80 bg-gradient-to-r from-blue-50/70 via-white to-stone-50 border border-blue-200/60 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xs">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-[#0a66c2]/10 text-[#0a66c2] flex items-center justify-center shrink-0 border border-blue-200/50">
+                <Bot size={20} />
               </div>
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="text-xs font-bold text-stone-900 font-mono">
+                    LinkedIn AI Comments Copilot & Auto-Responder
+                  </h3>
+                  <span className="inline-flex items-center gap-1.5 text-[10px] font-mono font-medium px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    Live Cron (Every 1 min ⚡)
+                  </span>
+                  {autoReplyStats.totalRepliesSent > 0 && (
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200 font-medium">
+                      {autoReplyStats.totalRepliesSent} Live Replies Sent
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-stone-500 font-sans mt-0.5">
+                  Autonomous comment reading, sentiment analysis, and live threaded replies via Google Gemini AI.
+                </p>
+              </div>
+            </div>
 
+            <div className="flex items-center gap-2 shrink-0 self-start sm:self-auto">
               <button
                 type="button"
                 onClick={handleScanLinkedInReplies}
                 disabled={autoReplyScanning}
-                className="px-3.5 py-2 rounded-xl text-xs font-mono font-medium text-white bg-[#0a66c2] hover:bg-[#004182] transition shadow-xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 shrink-0 self-start sm:self-auto"
-                title="Trigger automated background scanner to check all recent posts"
+                className="px-3.5 py-2.5 rounded-xl text-xs font-mono font-medium text-stone-700 bg-white hover:bg-stone-100 border border-stone-200/90 transition shadow-xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
               >
-                {autoReplyScanning ? (
-                  <RefreshCw size={12} className="animate-spin" />
-                ) : (
-                  <RefreshCw size={12} />
-                )}
-                {autoReplyScanning ? 'Scanning Feed...' : 'Scan LinkedIn Feed ⚡'}
+                {autoReplyScanning ? <RefreshCw size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+                {autoReplyScanning ? 'Scanning Feed...' : 'Scan Feed ⚡'}
               </button>
+
+              <Link
+                href="/comments"
+                className="px-4 py-2.5 rounded-xl text-xs font-mono font-bold text-white bg-[#0a66c2] hover:bg-[#004182] transition shadow-xs flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <Bot size={14} />
+                <span>Open Comments Copilot Page 🚀</span>
+              </Link>
             </div>
-
-            {/* Interactive 2-Column Copilot Studio */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 bg-[#fcfbf8] border border-stone-200 rounded-2xl p-4 sm:p-5">
-              {/* Left Column: Post Selector & Incoming Comment */}
-              <div className="lg:col-span-6 space-y-3.5">
-                <div>
-                  <label className="text-xs font-mono font-medium text-stone-700 block mb-1">
-                    1. Target LinkedIn Post Context
-                  </label>
-                  <select
-                    value={commentPostId}
-                    onChange={(e) => setCommentPostId(e.target.value)}
-                    className="w-full bg-white border border-stone-200 rounded-xl px-3 py-2 text-xs text-stone-900 focus:outline-none focus:border-stone-400 font-sans cursor-pointer"
-                  >
-                    {posts.filter((p) => p.publishResult?.linkedin?.postId).map((p) => (
-                      <option key={p._id} value={p._id}>
-                        {p.research?.topic || p.niche} ({new Date(p.createdAt).toLocaleDateString()})
-                      </option>
-                    ))}
-                    <option value="custom">✏️ Enter Custom LinkedIn Post URL / URN</option>
-                  </select>
-                </div>
-
-                {commentPostId === 'custom' && (
-                  <div>
-                    <label className="text-xs font-mono font-medium text-stone-700 block mb-1">
-                      LinkedIn Post URL or URN
-                    </label>
-                    <input
-                      type="text"
-                      value={commentCustomUrn}
-                      onChange={(e) => setCommentCustomUrn(e.target.value)}
-                      placeholder="e.g. https://www.linkedin.com/feed/update/urn:li:activity:... or urn:li:share:..."
-                      className="w-full bg-white border border-stone-200 rounded-xl px-3 py-2 text-xs text-stone-900 focus:outline-none focus:border-stone-400 font-mono"
-                    />
-                  </div>
-                )}
-
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="text-xs font-mono font-medium text-stone-700">
-                      2. Direct Comment Link / URN (Optional - For Threaded Reply)
-                    </label>
-                    <span className="text-[10px] text-stone-400 font-mono">... &gt; Copy link to comment</span>
-                  </div>
-                  <input
-                    type="text"
-                    value={commentLinkOrUrn}
-                    onChange={(e) => setCommentLinkOrUrn(e.target.value)}
-                    placeholder="e.g. https://www.linkedin.com/feed/update/... or urn:li:comment:..."
-                    className="w-full bg-white border border-stone-200 rounded-xl px-3 py-2 text-xs text-stone-900 focus:outline-none focus:border-stone-400 font-mono"
-                  />
-                  {commentLinkOrUrn.includes('comment') && (
-                    <p className="text-[10px] font-mono text-emerald-700 mt-1 flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                      Target comment thread detected! AI reply will nest directly under this user.
-                    </p>
-                  )}
-                </div>
-
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="text-xs font-mono font-medium text-stone-700">
-                      3. Commenter Name (Optional)
-                    </label>
-                    <span className="text-[10px] text-stone-400 font-mono">e.g. Rahul Sharma</span>
-                  </div>
-                  <input
-                    type="text"
-                    value={commenterName}
-                    onChange={(e) => setCommenterName(e.target.value)}
-                    placeholder="e.g. Rahul Sharma (AI will address: 'Thanks Rahul!')"
-                    className="w-full bg-white border border-stone-200 rounded-xl px-3 py-2 text-xs text-stone-900 focus:outline-none focus:border-stone-400 font-sans"
-                  />
-                </div>
-
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="text-xs font-mono font-medium text-stone-700">
-                      4. Paste User Comment from LinkedIn *
-                    </label>
-                    <span className="text-[10px] text-stone-400 font-mono">
-                      {incomingComment.length} chars
-                    </span>
-                  </div>
-                  <textarea
-                    rows={3}
-                    value={incomingComment}
-                    onChange={(e) => setIncomingComment(e.target.value)}
-                    placeholder="Paste the user's comment here (e.g. 'Loved this breakdown! How do you recommend scaling this with a smaller team?')..."
-                    className="w-full bg-white border border-stone-200 rounded-xl p-3 text-xs text-stone-900 focus:outline-none focus:border-stone-400 font-sans resize-y leading-relaxed"
-                  />
-                </div>
-
-                {/* Quick-fill sample pills */}
-                <div className="space-y-1">
-                  <span className="text-[10px] font-mono text-stone-400 uppercase tracking-wider block">
-                    Quick Sample Questions:
-                  </span>
-                  <div className="flex flex-wrap gap-1.5">
-                    {[
-                      'Great insights! How can startups adopt this without huge cost?',
-                      'Totally agree, especially on the workflow automation aspect.',
-                      'How does this integrate with existing tools and APIs?'
-                    ].map((sample) => (
-                      <button
-                        key={sample}
-                        type="button"
-                        onClick={() => setIncomingComment(sample)}
-                        className="text-[10px] font-sans text-stone-600 bg-white hover:bg-stone-100 border border-stone-200/80 px-2 py-1 rounded-lg transition text-left cursor-pointer truncate max-w-full"
-                      >
-                        "{sample}"
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={handleAnalyzeComment}
-                  disabled={isAnalyzing || !incomingComment.trim()}
-                  className="w-full py-2.5 rounded-xl text-xs font-mono font-medium text-white bg-stone-900 hover:bg-stone-800 disabled:opacity-50 transition shadow-xs flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  {isAnalyzing ? (
-                    <RefreshCw size={13} className="animate-spin" />
-                  ) : (
-                    <Sparkles size={13} className="text-yellow-400" />
-                  )}
-                  {isAnalyzing ? 'Reading & Analyzing Comment...' : '🧠 AI Read & Analyze Comment'}
-                </button>
-              </div>
-
-              {/* Right Column: AI Analysis, Live Editor & 1-Click Publisher */}
-              <div className="lg:col-span-6 flex flex-col justify-between border-t lg:border-t-0 lg:border-l border-stone-200/70 pt-4 lg:pt-0 lg:pl-5 space-y-3.5">
-                {replyDraft ? (
-                  <div className="space-y-3 flex-1 flex flex-col justify-between">
-                    <div className="space-y-2.5">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-mono font-medium text-stone-700 flex items-center gap-1.5">
-                          <span>4. AI Crafted Reply</span>
-                          <span className="text-[10px] text-stone-400 font-normal">(Editable)</span>
-                        </span>
-                        {sentiment && (
-                          <span className="text-[10px] font-mono font-medium px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
-                            Sentiment: {sentiment}
-                          </span>
-                        )}
-                      </div>
-
-                      <textarea
-                        rows={4}
-                        value={replyDraft}
-                        onChange={(e) => setReplyDraft(e.target.value)}
-                        placeholder="AI response draft..."
-                        className="w-full bg-white border border-stone-200 rounded-xl p-3 text-xs text-stone-900 focus:outline-none focus:border-stone-400 font-sans resize-y leading-relaxed"
-                      />
-
-                      {altReplyDraft && (
-                        <div className="p-2.5 rounded-xl bg-white border border-stone-200/80 text-[11px] space-y-1">
-                          <div className="flex items-center justify-between">
-                            <span className="font-mono text-[10px] text-stone-400 uppercase font-medium">
-                              Alternative Suggestion:
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const current = replyDraft;
-                                setReplyDraft(altReplyDraft);
-                                setAltReplyDraft(current);
-                              }}
-                              className="text-[10px] font-mono text-blue-600 hover:text-blue-800 underline cursor-pointer"
-                            >
-                              Swap Draft
-                            </button>
-                          </div>
-                          <p className="text-stone-600 font-sans italic">
-                            "{altReplyDraft}"
-                          </p>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="pt-2">
-                      <button
-                        type="button"
-                        onClick={handlePublishCommentReply}
-                        disabled={isPostingComment || !replyDraft.trim()}
-                        className="w-full py-3 rounded-xl text-xs font-mono font-bold text-white bg-[#0a66c2] hover:bg-[#004182] disabled:opacity-50 transition shadow-sm flex items-center justify-center gap-2 cursor-pointer"
-                      >
-                        {isPostingComment ? (
-                          <RefreshCw size={14} className="animate-spin" />
-                        ) : (
-                          <Send size={14} />
-                        )}
-                        {isPostingComment ? 'Posting LIVE to LinkedIn...' : '🚀 Publish Reply LIVE on LinkedIn'}
-                      </button>
-                      <p className="text-[10px] text-stone-400 font-sans text-center mt-1.5">
-                        Will post directly as a live comment reply to your target LinkedIn post URN.
-                      </p>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="h-full min-h-[220px] rounded-xl border border-dashed border-stone-200/80 bg-white/60 p-6 flex flex-col items-center justify-center text-center space-y-2">
-                    <div className="w-10 h-10 rounded-xl bg-stone-100 text-stone-400 flex items-center justify-center">
-                      <MessageSquare size={18} />
-                    </div>
-                    <div>
-                      <h4 className="text-xs font-mono font-bold text-stone-700">
-                        AI Comment Copilot Ready
-                      </h4>
-                      <p className="text-[11px] text-stone-400 font-sans max-w-xs mt-1">
-                        Paste any LinkedIn comment on the left and click <span className="font-mono text-stone-600 font-semibold">"AI Read & Analyze Comment"</span> to review sentiment analysis and editable AI drafts.
-                      </p>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Live Replies Ledger: Recent Activity */}
-            {repliesHistory.length > 0 && (
-              <div className="bg-white border border-stone-200/80 rounded-2xl p-4 space-y-3">
-                <div className="flex items-center justify-between pb-2 border-b border-stone-100">
-                  <span className="text-xs font-mono font-bold text-stone-700 flex items-center gap-1.5">
-                    <span>⚡ Live Replies Ledger ({repliesHistory.length})</span>
-                  </span>
-                  <span className="text-[10px] font-mono text-stone-400">
-                    Latest Activity
-                  </span>
-                </div>
-
-                <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-                  {repliesHistory.map((item, idx) => (
-                    <div
-                      key={item.commentId || idx}
-                      className="p-3 rounded-xl border border-stone-200/70 bg-[#fcfbf8] text-xs space-y-1.5"
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-mono text-[11px] font-bold text-stone-800 truncate">
-                          {item.commenterName || 'LinkedIn Member'}:
-                        </span>
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <span className="text-[10px] font-mono text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.2 rounded-full">
-                            ✓ Published Live
-                          </span>
-                          <span className="text-[10px] font-mono text-stone-400">
-                            {item.repliedAt ? new Date(item.repliedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Recent'}
-                          </span>
-                        </div>
-                      </div>
-
-                      <p className="text-stone-600 text-[11px] font-sans pl-2 border-l-2 border-stone-200">
-                        "{item.commentText}"
-                      </p>
-
-                      <div className="pt-1 flex items-start gap-1.5 text-stone-900 text-[11px] font-sans font-medium">
-                        <CornerDownRight size={13} className="text-[#0a66c2] shrink-0 mt-0.5" />
-                        <span>{item.replyText}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
         </section>
 
