@@ -569,7 +569,7 @@ export default function CommentsPage() {
             <div className="space-y-2.5 max-h-96 overflow-y-auto pr-1">
               {repliesHistory.map((item, idx) => (
                 <div
-                  key={item.commentId || idx}
+                  key={item._id || `${item.commentId || 'reply'}-${item.repliedAt || idx}-${idx}`}
                   className="p-3.5 rounded-xl border border-stone-200/70 bg-[#fcfbf8] text-xs space-y-1.5"
                 >
                   <div className="flex items-center justify-between gap-2">
