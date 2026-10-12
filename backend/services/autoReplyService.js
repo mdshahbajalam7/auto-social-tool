@@ -2,6 +2,7 @@ import axios from 'axios';
 import cron from 'node-cron';
 import { GoogleGenAI } from '@google/genai';
 import OpenAI from 'openai';
+import { connectDB } from '../config/db.js';
 import { Account } from '../models/Account.js';
 import { Post } from '../models/Post.js';
 
@@ -104,26 +105,36 @@ export async function fetchLinkedInComments({ targetUrn, token }) {
         console.warn('ℹ️ [LinkedIn] v2 comments fetch attempt:', v2Err.response?.data?.message || v2Err.message);
     }
 
-    // Method 2: LinkedIn REST API fallback
-    try {
-        const res = await axios.get(`https://api.linkedin.com/rest/socialActions/${encodedUrn}/comments`, {
-            headers: {
-                Authorization: `Bearer ${token}`,
-                'LinkedIn-Version': '202502',
-                'X-Restli-Protocol-Version': '2.0.0'
-            },
-            timeout: 10000
-        });
+    // Method 2: LinkedIn REST API with version fallback
+    const versionsToTry = ['202502', '202501', '202412', '202411', '202410'];
+    for (const ver of versionsToTry) {
+        try {
+            const res = await axios.get(`https://api.linkedin.com/rest/socialActions/${encodedUrn}/comments`, {
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    'LinkedIn-Version': ver,
+                    'X-Restli-Protocol-Version': '2.0.0'
+                },
+                timeout: 10000
+            });
 
-        const elements = res.data?.elements || [];
-        return elements.map((item) => ({
-            id: item['$URN'] || item.id || `comment_${Date.now()}`,
-            actor: item.actor || '',
-            text: item.message?.text || '',
-            createdAt: item.createdAt || Date.now()
-        }));
-    } catch (restErr) {
-        console.warn('ℹ️ [LinkedIn] REST comments fetch attempt:', restErr.response?.data?.message || restErr.message);
+            const elements = res.data?.elements || [];
+            return elements.map((item) => ({
+                id: item['$URN'] || item.id || `comment_${Date.now()}`,
+                actor: item.actor || '',
+                text: item.message?.text || '',
+                createdAt: item.createdAt || Date.now()
+            }));
+        } catch (restErr) {
+            if (restErr.response?.status === 403) {
+                console.warn('⚠️ [LinkedIn] Comments read requires r_member_social permission on your token.');
+                break;
+            }
+            if (restErr.response?.status === 426 || restErr.response?.data?.code === 'NONEXISTENT_VERSION') {
+                continue;
+            }
+            break;
+        }
     }
 
     return [];
@@ -287,6 +298,7 @@ export async function autoReplyAllRecentLinkedInPosts() {
 
     isScanning = true;
     try {
+        await connectDB();
         const account = await Account.findOne({ platform: 'linkedin', isConnected: true });
         if (!account && !process.env.LINKEDIN_ACCESS_TOKEN) {
             return { success: false, reason: 'LinkedIn not connected' };
