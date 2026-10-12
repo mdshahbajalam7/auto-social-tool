@@ -1106,6 +1106,12 @@ export default function Home() {
                     <img
                       src={latestPost.imageUrl}
                       alt="AI Editorial Creative"
+                      onError={(e) => {
+                        const fallbackPrompt = encodeURIComponent(
+                          `${latestPost.research?.topic || latestPost.niche || 'Technology Innovation'}, 3D modern conceptual illustration, minimal, 8k`
+                        );
+                        e.currentTarget.src = `https://image.pollinations.ai/prompt/${fallbackPrompt}?width=1080&height=1080&nologo=true&seed=42`;
+                      }}
                       className="w-full h-full object-cover object-top"
                     />
                     <a

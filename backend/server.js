@@ -5,6 +5,7 @@ import axios from 'axios';
 import { connectDB } from './config/db.js';
 import { Post } from './models/Post.js';
 import { Account } from './models/Account.js';
+import { Media } from './models/Media.js';
 import { researchTrends } from './services/researcher.js';
 import { generateSocialContent } from './services/aiGenerator.js';
 import { generateImageWithGemini } from './services/imageService.js';
@@ -62,6 +63,25 @@ app.use(async (req, res, next) => {
         await connectDB();
     } catch (_) { }
     next();
+});
+
+// Permanent Media Serving Endpoint (Serverless-safe & CDN cached from MongoDB)
+app.get('/api/media/:id', async (req, res) => {
+    try {
+        await connectDB();
+        const rawId = req.params.id.replace(/\.[^/.]+$/, '');
+        const media = await Media.findById(rawId);
+        if (!media || !media.data) {
+            return res.status(404).send('Media not found');
+        }
+
+        res.set('Content-Type', media.contentType || 'image/jpeg');
+        res.set('Cache-Control', 'public, max-age=31536000, immutable');
+        res.send(media.data);
+    } catch (err) {
+        console.error('Error serving media:', err.message);
+        res.status(500).send('Error serving media');
+    }
 });
 
 // ==========================================

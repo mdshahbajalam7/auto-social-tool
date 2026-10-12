@@ -6,6 +6,8 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { Media } from '../models/Media.js';
+import { connectDB } from '../config/db.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -122,19 +124,39 @@ export async function generateImageWithGemini(arg1, arg2, arg3) {
                     }
 
                     if (rawBuf && rawBuf.length > 1000) {
-                        const cleanFileName = `cf-art-${Date.now()}-${randomSeed}.jpg`;
-                        const cleanFilePath = path.join(uploadsDir, cleanFileName);
-
-                        // Save pristine 1080x1080 HD sRGB JPEG (Instagram optimal standard)
-                        await sharp(rawBuf)
+                        // Process into pristine 1080x1080 HD sRGB JPEG (Instagram/LinkedIn standard)
+                        const cleanBuffer = await sharp(rawBuf)
                             .resize(1080, 1080, { fit: 'cover' })
                             .toColorspace('srgb')
                             .jpeg({ quality: 90 })
-                            .toFile(cleanFilePath);
+                            .toBuffer();
 
-                        const backendBase = process.env.BACKEND_URL || 'http://localhost:5000';
+                        // 1. Save directly into MongoDB Atlas for permanent multi-platform CDN availability
+                        try {
+                            await connectDB();
+                            const media = await Media.create({
+                                filename: `cf-art-${Date.now()}-${randomSeed}.jpg`,
+                                contentType: 'image/jpeg',
+                                data: cleanBuffer,
+                                size: cleanBuffer.length
+                            });
+
+                            const backendBase = (process.env.BACKEND_URL || 'http://localhost:5000').replace(/\/$/, '');
+                            const cloudMediaUrl = `${backendBase}/api/media/${media._id}.jpg`;
+                            console.log(`✅ [Cloudflare AI] Image permanently stored in MongoDB Cloud: ${cloudMediaUrl}`);
+                            return cloudMediaUrl;
+                        } catch (dbSaveErr) {
+                            console.warn('⚠️ Could not save media to MongoDB Atlas, writing to local file:', dbSaveErr.message);
+                        }
+
+                        // Local disk fallback
+                        const cleanFileName = `cf-art-${Date.now()}-${randomSeed}.jpg`;
+                        const cleanFilePath = path.join(uploadsDir, cleanFileName);
+                        fs.writeFileSync(cleanFilePath, cleanBuffer);
+
+                        const backendBase = (process.env.BACKEND_URL || 'http://localhost:5000').replace(/\/$/, '');
                         const cleanUrl = `${backendBase}/uploads/${cleanFileName}`;
-                        console.log(`✅ [Cloudflare AI] Image successfully generated & saved (100% Watermark-Free): ${cleanUrl}`);
+                        console.log(`✅ [Cloudflare AI] Image saved to local disk: ${cleanUrl}`);
                         return cleanUrl;
                     }
                 }
@@ -214,10 +236,7 @@ export async function generateImageWithGemini(arg1, arg2, arg3) {
             // Trim off the bottom 65 pixels where the watermark logo sits
             const cropHeight = Math.max(100, imgHeight - 65);
 
-            const cleanFileName = `clean-art-${Date.now()}-${randomSeed}.jpg`;
-            const cleanFilePath = path.join(uploadsDir, cleanFileName);
-
-            await sharp(rawBuffer)
+            const cleanBuffer = await sharp(rawBuffer)
                 .extract({
                     left: 0,
                     top: 0,
@@ -227,9 +246,32 @@ export async function generateImageWithGemini(arg1, arg2, arg3) {
                 .resize(1080, 1080, { fit: 'cover', position: 'top' })
                 .toColorspace('srgb')
                 .jpeg({ quality: 90 })
-                .toFile(cleanFilePath);
+                .toBuffer();
 
-            const backendBase = process.env.BACKEND_URL || 'http://localhost:5000';
+            // 1. Store directly into MongoDB Atlas
+            try {
+                await connectDB();
+                const media = await Media.create({
+                    filename: `clean-art-${Date.now()}-${randomSeed}.jpg`,
+                    contentType: 'image/jpeg',
+                    data: cleanBuffer,
+                    size: cleanBuffer.length
+                });
+
+                const backendBase = (process.env.BACKEND_URL || 'http://localhost:5000').replace(/\/$/, '');
+                const cloudMediaUrl = `${backendBase}/api/media/${media._id}.jpg`;
+                console.log(`✅ [AI Image] Watermark stripped & saved to MongoDB Cloud: ${cloudMediaUrl}`);
+                return cloudMediaUrl;
+            } catch (dbErr) {
+                console.warn('⚠️ Cloud MongoDB save note:', dbErr.message);
+            }
+
+            // Local disk fallback
+            const cleanFileName = `clean-art-${Date.now()}-${randomSeed}.jpg`;
+            const cleanFilePath = path.join(uploadsDir, cleanFileName);
+            fs.writeFileSync(cleanFilePath, cleanBuffer);
+
+            const backendBase = (process.env.BACKEND_URL || 'http://localhost:5000').replace(/\/$/, '');
             const cleanUrl = `${backendBase}/uploads/${cleanFileName}`;
             console.log(`✅ [AI Image] Watermark 100% physically stripped! Clean image ready: ${cleanUrl}`);
             return cleanUrl;
