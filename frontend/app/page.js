@@ -182,6 +182,50 @@ export default function Home() {
     }
   };
 
+  // Quick Reply Simulation / Manual Submission
+  const [quickReplyOpen, setQuickReplyOpen] = useState(false);
+  const [quickCommentText, setQuickCommentText] = useState('');
+  const [quickSending, setQuickSending] = useState(false);
+
+  const handleSendQuickReply = async (e) => {
+    e.preventDefault();
+    const linkedinPost = posts.find((p) => p.publishResult?.linkedin?.postId);
+    if (!linkedinPost) {
+      setBannerMsg({ type: 'error', text: 'No published LinkedIn post found to reply to!' });
+      return;
+    }
+    if (!quickCommentText.trim()) return;
+
+    setQuickSending(true);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/linkedin/reply-comment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          postId: linkedinPost._id,
+          commentText: quickCommentText.trim()
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setBannerMsg({
+          type: 'success',
+          text: `🎉 AI Reply successfully posted LIVE on LinkedIn: "${data.result?.replyText}"`
+        });
+        setQuickCommentText('');
+        setQuickReplyOpen(false);
+        fetchAutoReplyStats();
+        fetchPosts();
+      } else {
+        setBannerMsg({ type: 'error', text: data.error || 'Failed to post reply' });
+      }
+    } catch (err) {
+      setBannerMsg({ type: 'error', text: 'Error posting reply: ' + err.message });
+    } finally {
+      setQuickSending(false);
+    }
+  };
+
   useEffect(() => {
     fetchAccounts();
     fetchPosts();
@@ -615,20 +659,51 @@ export default function Home() {
               </div>
             </div>
 
-            <button
-              type="button"
-              onClick={handleScanLinkedInReplies}
-              disabled={autoReplyScanning}
-              className="px-4 py-2 rounded-xl text-xs font-mono font-medium text-white bg-[#0a66c2] hover:bg-[#004182] transition shadow-xs flex items-center justify-center gap-2 shrink-0 cursor-pointer disabled:opacity-50"
-            >
-              {autoReplyScanning ? (
-                <RefreshCw size={13} className="animate-spin" />
-              ) : (
-                <MessageSquare size={13} />
-              )}
-              {autoReplyScanning ? 'Scanning Comments...' : 'Scan & Reply Now ⚡'}
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => setQuickReplyOpen(!quickReplyOpen)}
+                className="px-3 py-2 rounded-xl text-xs font-mono font-medium text-[#0a66c2] bg-blue-50/80 hover:bg-blue-100 border border-blue-200 transition cursor-pointer"
+              >
+                {quickReplyOpen ? 'Cancel' : '✍️ Quick Reply'}
+              </button>
+
+              <button
+                type="button"
+                onClick={handleScanLinkedInReplies}
+                disabled={autoReplyScanning}
+                className="px-4 py-2 rounded-xl text-xs font-mono font-medium text-white bg-[#0a66c2] hover:bg-[#004182] transition shadow-xs flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+              >
+                {autoReplyScanning ? (
+                  <RefreshCw size={13} className="animate-spin" />
+                ) : (
+                  <MessageSquare size={13} />
+                )}
+                {autoReplyScanning ? 'Scanning...' : 'Scan Now ⚡'}
+              </button>
+            </div>
           </div>
+
+          {quickReplyOpen && (
+            <form onSubmit={handleSendQuickReply} className="mt-3 pt-3 border-t border-blue-200/50 flex flex-col sm:flex-row gap-2">
+              <input
+                type="text"
+                required
+                value={quickCommentText}
+                onChange={(e) => setQuickCommentText(e.target.value)}
+                placeholder="Paste incoming comment here (e.g. 'Great post! How does this compare to traditional tools?')..."
+                className="flex-1 bg-white border border-stone-200 focus:border-blue-400 text-stone-900 rounded-xl px-3.5 py-2 text-xs focus:outline-none"
+              />
+              <button
+                type="submit"
+                disabled={quickSending || !quickCommentText.trim()}
+                className="px-4 py-2 rounded-xl text-xs font-mono font-medium text-white bg-stone-900 hover:bg-stone-800 disabled:opacity-50 shrink-0 cursor-pointer flex items-center justify-center gap-1.5"
+              >
+                {quickSending ? <RefreshCw size={12} className="animate-spin" /> : <Sparkles size={12} />}
+                {quickSending ? 'Replying Live...' : 'Generate & Post Live 🚀'}
+              </button>
+            </form>
+          )}
         </section>
 
         {/* 3. Action Studio: Research & Generate */}

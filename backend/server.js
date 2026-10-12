@@ -18,6 +18,7 @@ import {
 import {
     autoReplyAllRecentLinkedInPosts,
     processPostComments,
+    replyToCommentManual,
     startAutoReplyCron
 } from './services/autoReplyService.js';
 
@@ -455,6 +456,19 @@ app.get('/api/linkedin/auto-reply-stats', async (req, res) => {
             postsWithRepliesCount: postsWithReplies.length,
             history: postsWithReplies
         });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Post an AI or custom comment reply to a LinkedIn post
+app.post('/api/linkedin/reply-comment', async (req, res) => {
+    try {
+        const { postId, commentText, customReplyText } = req.body;
+        if (!postId) return res.status(400).json({ success: false, error: 'postId is required' });
+
+        const result = await replyToCommentManual({ postId, commentText, customReplyText });
+        res.json({ success: true, result });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }

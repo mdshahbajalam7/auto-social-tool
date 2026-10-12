@@ -174,32 +174,98 @@ export async function postLinkedInReply({ targetUrn, token, authorUrn, replyText
         console.warn('ℹ️ [LinkedIn] v2 reply post attempt failed, trying REST endpoint...', v2Err.response?.data || v2Err.message);
     }
 
-    // Method 2: LinkedIn REST API fallback
-    try {
-        const restPayload = {
-            actor: authorUrn,
-            message: {
-                text: replyText
+    // Method 2: LinkedIn REST API with version fallback
+    const versionsToTry = ['202502', '202501', '202412', '202411', '202410'];
+    let lastError = null;
+
+    for (const ver of versionsToTry) {
+        try {
+            const restPayload = {
+                actor: authorUrn,
+                message: {
+                    text: replyText
+                }
+            };
+
+            const res = await axios.post(`https://api.linkedin.com/rest/socialActions/${encodedUrn}/comments`, restPayload, {
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    'LinkedIn-Version': ver,
+                    'X-Restli-Protocol-Version': '2.0.0',
+                    'Content-Type': 'application/json'
+                },
+                timeout: 15000
+            });
+
+            console.log(`✅ [LinkedIn REST] Comment reply posted successfully with version ${ver}!`);
+            return { success: true, id: res.data?.id || `reply_${Date.now()}` };
+        } catch (restErr) {
+            lastError = restErr;
+            if (restErr.response?.status === 426 || restErr.response?.data?.code === 'NONEXISTENT_VERSION') {
+                continue;
             }
-        };
-
-        const res = await axios.post(`https://api.linkedin.com/rest/socialActions/${encodedUrn}/comments`, restPayload, {
-            headers: {
-                Authorization: `Bearer ${token}`,
-                'LinkedIn-Version': '202502',
-                'X-Restli-Protocol-Version': '2.0.0',
-                'Content-Type': 'application/json'
-            },
-            timeout: 15000
-        });
-
-        console.log(`✅ [LinkedIn REST] Comment reply posted successfully!`);
-        return { success: true, id: res.data?.id || `reply_${Date.now()}` };
-    } catch (restErr) {
-        const errMsg = restErr.response?.data?.message || restErr.message;
-        console.error('❌ [LinkedIn] Failed to post comment reply:', errMsg);
-        return { success: false, error: errMsg };
+            break;
+        }
     }
+
+    const errMsg = lastError?.response?.data?.message || lastError?.message || 'Failed to post comment reply';
+    console.error('❌ [LinkedIn] Failed to post comment reply:', errMsg);
+    return { success: false, error: errMsg };
+}
+
+/**
+ * Manually submit a comment reply using AI or custom text
+ */
+export async function replyToCommentManual({ postId, commentText, customReplyText }) {
+    await connectDB();
+    const post = await Post.findById(postId);
+    if (!post) throw new Error('Post not found');
+
+    const account = await Account.findOne({ platform: 'linkedin', isConnected: true });
+    const token = account?.accessToken || process.env.LINKEDIN_ACCESS_TOKEN;
+    const authorUrn = account?.accountUrn || process.env.LINKEDIN_PERSON_URN;
+    const linkedinPostId = post.publishResult?.linkedin?.postId;
+
+    if (!linkedinPostId) throw new Error('This post does not have a published LinkedIn Post ID.');
+    if (!token || !authorUrn) throw new Error('LinkedIn is not connected.');
+
+    // 1. Generate AI Reply if custom text not provided
+    const aiReply = customReplyText?.trim() || await generateAIReply({
+        postTopic: post.research?.topic || post.niche,
+        postContent: post.content?.linkedin || post.content?.twitter,
+        commenterName: 'LinkedIn User',
+        commentText: commentText || 'Great post!'
+    });
+
+    // 2. Post reply to LinkedIn
+    const postRes = await postLinkedInReply({
+        targetUrn: linkedinPostId,
+        token,
+        authorUrn,
+        replyText: aiReply
+    });
+
+    if (!postRes.success) {
+        throw new Error(postRes.error || 'Failed to post reply to LinkedIn');
+    }
+
+    const replyRecord = {
+        commentId: `manual_${Date.now()}`,
+        commentText: commentText || 'User Comment',
+        replyText: aiReply,
+        repliedAt: new Date()
+    };
+
+    await Post.findByIdAndUpdate(post._id, {
+        $push: { repliedComments: replyRecord }
+    });
+
+    return {
+        success: true,
+        replyText: aiReply,
+        postId: linkedinPostId,
+        record: replyRecord
+    };
 }
 
 /**
