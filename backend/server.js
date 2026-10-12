@@ -39,6 +39,28 @@ app.use(express.json());
 app.use('/uploads', express.static(uploadsDir));
 
 // ==========================================
+// 0. Deployment Test & Health Check Route (GET /)
+// ==========================================
+app.get('/', (req, res) => {
+    res.json({
+        success: true,
+        message: '🚀 Auto Social Tool Backend API is running live!',
+        status: 'healthy',
+        timestamp: new Date().toISOString(),
+        environment: process.env.NODE_ENV || 'production',
+        endpoints: {
+            health: 'GET /',
+            accounts: 'GET /api/accounts',
+            posts: 'GET /api/posts',
+            pipeline: 'POST /api/pipeline/auto-run',
+            connectAccount: 'POST /api/accounts/connect',
+            publishSingle: 'POST /api/publish/:platform',
+            publishAll: 'POST /api/publish-all'
+        }
+    });
+});
+
+// ==========================================
 // 1. Pipeline Auto-Run (Research -> Write -> Render -> Publish -> Save)
 // ==========================================
 app.post('/api/pipeline/auto-run', async (req, res) => {
