@@ -169,54 +169,128 @@ export async function publishToLinkedIn({ text, imageUrl }) {
 
     // Step A: Attempt LinkedIn Media Upload if imageUrl is provided
     let imageAsset = null;
+    let restImageUrn = null;
+
     if (imageUrl) {
         try {
-            console.log('📸 [LinkedIn] Uploading image asset to LinkedIn...');
-            const registerPayload = {
-                registerUploadRequest: {
-                    recipes: ['urn:li:digitalmediaRecipe:feedshare-image'],
-                    owner: authorUrn,
-                    serviceRelationships: [
-                        {
-                            relationshipType: 'OWNER',
-                            identifier: 'urn:li:userGeneratedContent'
+            console.log('📸 [LinkedIn] Preparing image asset for LinkedIn dispatch...');
+            let imageBuffer = null;
+
+            if (imageUrl.startsWith('data:image/')) {
+                const base64Data = imageUrl.split(',')[1];
+                imageBuffer = Buffer.from(base64Data, 'base64');
+            } else if (imageUrl.includes('/api/media/')) {
+                try {
+                    const idMatch = imageUrl.match(/\/api\/media\/([a-f0-9]+)/i);
+                    if (idMatch) {
+                        const { Media } = await import('../models/Media.js');
+                        const media = await Media.findById(idMatch[1]);
+                        if (media?.data) {
+                            imageBuffer = media.data;
+                            console.log(`📦 [LinkedIn] Retrieved image directly from MongoDB Media (${imageBuffer.length} bytes)`);
                         }
-                    ]
+                    }
+                } catch (dbErr) {
+                    console.warn('Could not read Media from database directly:', dbErr.message);
                 }
-            };
+            }
 
-            const regRes = await axios.post('https://api.linkedin.com/v2/assets?action=registerUpload', registerPayload, {
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                }
-            });
+            if (!imageBuffer) {
+                const imgRes = await axios.get(imageUrl, { responseType: 'arraybuffer', timeout: 15000 });
+                imageBuffer = Buffer.from(imgRes.data);
+            }
 
-            const uploadUrl = regRes.data?.value?.uploadMechanism?.['com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest']?.uploadUrl;
-            const assetUrn = regRes.data?.value?.asset;
+            // Ensure buffer is valid sRGB JPEG
+            const normalizedBuffer = await sharp(imageBuffer)
+                .toColorspace('srgb')
+                .jpeg({ quality: 90 })
+                .toBuffer();
 
-            if (uploadUrl && assetUrn) {
-                let imageBuffer;
-                if (imageUrl.startsWith('data:image/')) {
-                    const base64Data = imageUrl.split(',')[1];
-                    imageBuffer = Buffer.from(base64Data, 'base64');
-                } else {
-                    const imgRes = await axios.get(imageUrl, { responseType: 'arraybuffer', timeout: 15000 });
-                    imageBuffer = Buffer.from(imgRes.data);
-                }
+            // Attempt A: LinkedIn v2 Assets API
+            try {
+                const registerPayload = {
+                    registerUploadRequest: {
+                        recipes: ['urn:li:digitalmediaRecipe:feedshare-image'],
+                        owner: authorUrn,
+                        serviceRelationships: [
+                            {
+                                relationshipType: 'OWNER',
+                                identifier: 'urn:li:userGeneratedContent'
+                            }
+                        ]
+                    }
+                };
 
-                await axios.put(uploadUrl, imageBuffer, {
+                const regRes = await axios.post('https://api.linkedin.com/v2/assets?action=registerUpload', registerPayload, {
                     headers: {
                         Authorization: `Bearer ${token}`,
-                        'Content-Type': 'image/jpeg'
-                    }
+                        'Content-Type': 'application/json'
+                    },
+                    timeout: 10000
                 });
 
-                imageAsset = assetUrn;
-                console.log(`✅ [LinkedIn] Media uploaded successfully! Asset URN: ${imageAsset}`);
+                const uploadUrl = regRes.data?.value?.uploadMechanism?.['com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest']?.uploadUrl;
+                const assetUrn = regRes.data?.value?.asset;
+
+                if (uploadUrl && assetUrn) {
+                    await axios.put(uploadUrl, normalizedBuffer, {
+                        headers: {
+                            Authorization: `Bearer ${token}`,
+                            'Content-Type': 'image/jpeg'
+                        },
+                        timeout: 20000
+                    });
+
+                    imageAsset = assetUrn;
+                    console.log(`✅ [LinkedIn] v2 Media uploaded successfully! Asset URN: ${imageAsset}`);
+                }
+            } catch (v2UploadErr) {
+                console.warn('ℹ️ [LinkedIn] v2 Assets upload note:', v2UploadErr.response?.data?.message || v2UploadErr.message);
+            }
+
+            // Attempt B: LinkedIn REST Images API
+            if (!imageAsset) {
+                const versionsToTry = ['202502', '202501', '202412'];
+                for (const ver of versionsToTry) {
+                    try {
+                        const initRes = await axios.post(
+                            'https://api.linkedin.com/rest/images?action=initializeUpload',
+                            { initializeUploadRequest: { owner: authorUrn } },
+                            {
+                                headers: {
+                                    Authorization: `Bearer ${token}`,
+                                    'LinkedIn-Version': ver,
+                                    'X-Restli-Protocol-Version': '2.0.0',
+                                    'Content-Type': 'application/json'
+                                },
+                                timeout: 10000
+                            }
+                        );
+
+                        const uploadUrl = initRes.data?.value?.uploadUrl;
+                        const imageUrn = initRes.data?.value?.image;
+
+                        if (uploadUrl && imageUrn) {
+                            await axios.put(uploadUrl, normalizedBuffer, {
+                                headers: {
+                                    Authorization: `Bearer ${token}`,
+                                    'Content-Type': 'image/jpeg'
+                                },
+                                timeout: 20000
+                            });
+
+                            restImageUrn = imageUrn;
+                            imageAsset = imageUrn;
+                            console.log(`✅ [LinkedIn REST] Image uploaded successfully! URN: ${restImageUrn}`);
+                            break;
+                        }
+                    } catch (restImgErr) {
+                        continue;
+                    }
+                }
             }
         } catch (imgErr) {
-            console.warn('ℹ️ [LinkedIn] Image upload warning (proceeding with text):', imgErr.response?.data?.message || imgErr.message);
+            console.warn('ℹ️ [LinkedIn] Image retrieval / upload warning (proceeding with text):', imgErr.response?.data?.message || imgErr.message);
         }
     }
 
