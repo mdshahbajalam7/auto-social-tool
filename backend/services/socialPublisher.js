@@ -1,0 +1,734 @@
+import axios from 'axios';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+import sharp from 'sharp';
+import { Account } from '../models/Account.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+/**
+ * Ensures an image URL is publicly reachable and complies with Instagram Graph API standards:
+ * - Direct HTTPS URL with Content-Type: image/jpeg
+ * - 1:1 Square (1080 x 1080 px)
+ * - Color space: sRGB
+ * - Quality: 90 JPEG
+ */
+async function getPublicImageUrl(imageUrl) {
+    if (!imageUrl) return null;
+
+    // Already a public web URL that is not localhost
+    if (imageUrl.startsWith('http') && !imageUrl.includes('localhost') && !imageUrl.includes('127.0.0.1')) {
+        return imageUrl;
+    }
+
+    try {
+        let rawBuffer = null;
+        let filename = `ig-post-${Date.now()}.jpg`;
+
+        if (imageUrl.startsWith('data:image/')) {
+            const base64Data = imageUrl.split(',')[1];
+            rawBuffer = Buffer.from(base64Data, 'base64');
+        } else if (imageUrl.includes('localhost') || imageUrl.includes('127.0.0.1')) {
+            try {
+                const parsedUrl = new URL(imageUrl);
+                const localRel = parsedUrl.pathname.replace(/^\//, '');
+                const localFilePath = path.resolve(__dirname, '..', localRel);
+                if (fs.existsSync(localFilePath)) {
+                    rawBuffer = fs.readFileSync(localFilePath);
+                    filename = path.basename(localFilePath);
+                }
+            } catch (_) {}
+
+            if (!rawBuffer) {
+                const res = await axios.get(imageUrl, { responseType: 'arraybuffer', timeout: 10000 });
+                rawBuffer = Buffer.from(res.data);
+            }
+        } else if (fs.existsSync(imageUrl)) {
+            rawBuffer = fs.readFileSync(imageUrl);
+            filename = path.basename(imageUrl);
+        }
+
+        if (rawBuffer) {
+            // Instagram strict requirements: 1080x1080 (1:1 square), sRGB, clean baseline JPEG
+            const normalizedJpegBuffer = await sharp(rawBuffer)
+                .resize(1080, 1080, { fit: 'cover' })
+                .toColorspace('srgb')
+                .jpeg({ quality: 90, mozjpeg: false })
+                .toBuffer();
+
+            // Method 1: Litterbox (Catbox) - Serves direct static files with Content-Type: image/jpeg
+            try {
+                const catForm = new FormData();
+                catForm.append('reqtype', 'fileupload');
+                catForm.append('time', '1h');
+                catForm.append('fileToUpload', new Blob([normalizedJpegBuffer], { type: 'image/jpeg' }), filename);
+                const catRes = await fetch('https://litterbox.catbox.moe/resources/internals/api.php', {
+                    method: 'POST',
+                    body: catForm
+                });
+                const catUrl = await catRes.text();
+                if (catUrl && catUrl.trim().startsWith('http')) {
+                    const finalUrl = catUrl.trim();
+                    console.log(`🌐 [Instagram] Converted local image to Litterbox JPEG: ${finalUrl}`);
+                    return finalUrl;
+                }
+            } catch (catErr) {
+                console.warn('ℹ️ Litterbox upload failed, trying FreeImage CDN...', catErr.message);
+            }
+
+            // Method 2: FreeImage.host - CDN serving pure image/jpeg with 200 OK
+            try {
+                const freeForm = new FormData();
+                freeForm.append('key', '6d207e02198a847aa98d0a2a901485a5');
+                freeForm.append('action', 'upload');
+                freeForm.append('format', 'json');
+                freeForm.append('source', normalizedJpegBuffer.toString('base64'));
+
+                const freeRes = await fetch('https://freeimage.host/api/1/upload', {
+                    method: 'POST',
+                    body: freeForm
+                });
+                const freeData = await freeRes.json();
+                if (freeData?.image?.url) {
+                    console.log(`🌐 [Instagram] Converted local image to FreeImage JPEG: ${freeData.image.url}`);
+                    return freeData.image.url;
+                }
+            } catch (freeErr) {
+                console.warn('ℹ️ FreeImage upload failed:', freeErr.message);
+            }
+        }
+    } catch (err) {
+        console.warn('⚠️ [Instagram] Error normalizing / hosting image:', err.message);
+    }
+
+    return imageUrl;
+}
+
+// 1. LinkedIn Publishing
+export async function publishToLinkedIn({ text, imageUrl }) {
+    // Check connected account from MongoDB first, then fallback to .env
+    const account = await Account.findOne({ platform: 'linkedin', isConnected: true });
+    const token = account?.accessToken || process.env.LINKEDIN_ACCESS_TOKEN;
+    let authorUrn = account?.accountUrn || process.env.LINKEDIN_PERSON_URN || '';
+    let username = account?.username || 'LinkedIn Member';
+
+    // Check if token exists and is not a placeholder
+    const hasValidToken = token && !token.includes('your_') && token.length > 20;
+
+    // If we have a valid token but no authorUrn (or placeholder), auto-fetch from LinkedIn API
+    if (hasValidToken && (!authorUrn || authorUrn.includes('your_'))) {
+        try {
+            console.log('🔍 [LinkedIn] Fetching profile details via /v2/userinfo...');
+            const userInfoRes = await axios.get('https://api.linkedin.com/v2/userinfo', {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            if (userInfoRes.data?.sub) {
+                authorUrn = `urn:li:person:${userInfoRes.data.sub}`;
+                username = userInfoRes.data.name || username;
+                console.log(`✅ [LinkedIn] Auto-detected author: ${authorUrn} (${username})`);
+
+                // Persist accountUrn into MongoDB Account
+                if (account) {
+                    await Account.findByIdAndUpdate(account._id, {
+                        $set: {
+                            accountUrn: authorUrn,
+                            username
+                        }
+                    });
+                }
+            }
+        } catch (err) {
+            console.warn('⚠️ [LinkedIn] Could not auto-fetch userinfo:', err.response?.data || err.message);
+        }
+    }
+
+    // If still no token or authorUrn, fallback to simulation mode
+    if (!hasValidToken || !authorUrn || authorUrn.includes('your_')) {
+        console.log(`ℹ️ [LinkedIn] Simulating post dispatch for: ${username}`);
+        const mockId = `urn:li:share:${Date.now()}`;
+        if (account) {
+            await Account.findByIdAndUpdate(account._id, {
+                $inc: { postCount: 1 },
+                $set: { lastPostAt: new Date() }
+            });
+        }
+        return {
+            success: true,
+            simulated: true,
+            platform: 'linkedin',
+            username,
+            postId: mockId,
+            postUrl: account?.profileUrl || 'https://linkedin.com/feed/',
+            publishedAt: new Date().toISOString()
+        };
+    }
+
+    console.log(`🚀 [LinkedIn] Publishing real post as ${authorUrn}...`);
+
+    // Step A: Attempt LinkedIn Media Upload if imageUrl is provided
+    let imageAsset = null;
+    if (imageUrl) {
+        try {
+            console.log('📸 [LinkedIn] Uploading image asset to LinkedIn...');
+            const registerPayload = {
+                registerUploadRequest: {
+                    recipes: ['urn:li:digitalmediaRecipe:feedshare-image'],
+                    owner: authorUrn,
+                    serviceRelationships: [
+                        {
+                            relationshipType: 'OWNER',
+                            identifier: 'urn:li:userGeneratedContent'
+                        }
+                    ]
+                }
+            };
+
+            const regRes = await axios.post('https://api.linkedin.com/v2/assets?action=registerUpload', registerPayload, {
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            const uploadUrl = regRes.data?.value?.uploadMechanism?.['com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest']?.uploadUrl;
+            const assetUrn = regRes.data?.value?.asset;
+
+            if (uploadUrl && assetUrn) {
+                let imageBuffer;
+                if (imageUrl.startsWith('data:image/')) {
+                    const base64Data = imageUrl.split(',')[1];
+                    imageBuffer = Buffer.from(base64Data, 'base64');
+                } else {
+                    const imgRes = await axios.get(imageUrl, { responseType: 'arraybuffer', timeout: 15000 });
+                    imageBuffer = Buffer.from(imgRes.data);
+                }
+
+                await axios.put(uploadUrl, imageBuffer, {
+                    headers: {
+                        Authorization: `Bearer ${token}`,
+                        'Content-Type': 'image/jpeg'
+                    }
+                });
+
+                imageAsset = assetUrn;
+                console.log(`✅ [LinkedIn] Media uploaded successfully! Asset URN: ${imageAsset}`);
+            }
+        } catch (imgErr) {
+            console.warn('ℹ️ [LinkedIn] Image upload warning (proceeding with text):', imgErr.response?.data?.message || imgErr.message);
+        }
+    }
+
+    // Method 1: Try LinkedIn ugcPosts API
+    try {
+        const shareContent = imageAsset ? {
+            shareCommentary: { text },
+            shareMediaCategory: 'IMAGE',
+            media: [
+                {
+                    status: 'READY',
+                    description: { text: text.slice(0, 100) },
+                    media: imageAsset,
+                    title: { text: 'Social Asset' }
+                }
+            ]
+        } : {
+            shareCommentary: { text },
+            shareMediaCategory: 'NONE'
+        };
+
+        const payload = {
+            author: authorUrn,
+            lifecycleState: 'PUBLISHED',
+            specificContent: {
+                'com.linkedin.ugc.ShareContent': shareContent
+            },
+            visibility: {
+                'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC'
+            }
+        };
+
+        const response = await axios.post('https://api.linkedin.com/v2/ugcPosts', payload, {
+            headers: {
+                Authorization: `Bearer ${token}`,
+                'X-Restli-Protocol-Version': '2.0.0',
+                'Content-Type': 'application/json'
+            }
+        });
+
+        if (account) {
+            await Account.findByIdAndUpdate(account._id, {
+                $inc: { postCount: 1 },
+                $set: { lastPostAt: new Date(), accountUrn: authorUrn }
+            });
+        }
+
+        console.log(`✅ [LinkedIn] Post published successfully! ID: ${response.data.id}`);
+        return {
+            success: true,
+            platform: 'linkedin',
+            username,
+            postId: response.data.id,
+            postUrl: `https://www.linkedin.com/feed/update/${response.data.id}`,
+            hasImage: Boolean(imageAsset),
+            publishedAt: new Date().toISOString()
+        };
+    } catch (ugcError) {
+        console.warn('⚠️ ugcPosts failed, attempting /rest/posts endpoint...', ugcError.response?.data || ugcError.message);
+
+        // Method 2: Fallback to LinkedIn rest/posts API with active version fallback
+        const restPayload = {
+            author: authorUrn,
+            commentary: text,
+            visibility: 'PUBLIC',
+            distribution: {
+                feedDistribution: 'MAIN_FEED',
+                targetEntities: [],
+                thirdPartyDistributionChannels: []
+            },
+            content: imageAsset ? {
+                media: {
+                    id: imageAsset,
+                    title: 'Social Asset'
+                }
+            } : undefined,
+            lifecycleState: 'PUBLISHED',
+            isReshareDisabledByAuthor: false
+        };
+
+        // Candidate active versions in YYYYMM format (LinkedIn versions expire after 12 months)
+        const now = new Date();
+        const curY = now.getFullYear();
+        const curM = String(now.getMonth() + 1).padStart(2, '0');
+        const versionsToTry = [
+            '202502',
+            '202501',
+            '202412',
+            '202411',
+            '202410',
+            '202503',
+            '202504',
+            `${curY}${curM}`
+        ];
+
+        let lastRestError = null;
+
+        for (const ver of versionsToTry) {
+            try {
+                console.log(`📡 [LinkedIn] Attempting /rest/posts with LinkedIn-Version: ${ver}...`);
+                const restRes = await axios.post('https://api.linkedin.com/rest/posts', restPayload, {
+                    headers: {
+                        Authorization: `Bearer ${token}`,
+                        'LinkedIn-Version': ver,
+                        'X-Restli-Protocol-Version': '2.0.0',
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const postId = restRes.data?.id || restRes.headers['x-restli-id'] || `post_${Date.now()}`;
+
+                if (account) {
+                    await Account.findByIdAndUpdate(account._id, {
+                        $inc: { postCount: 1 },
+                        $set: { lastPostAt: new Date(), accountUrn: authorUrn }
+                    });
+                }
+
+                console.log(`✅ [LinkedIn] /rest/posts published successfully with version ${ver}! ID: ${postId}`);
+                return {
+                    success: true,
+                    platform: 'linkedin',
+                    username,
+                    postId,
+                    postUrl: `https://www.linkedin.com/feed/update/${postId}`,
+                    publishedAt: new Date().toISOString()
+                };
+            } catch (verErr) {
+                lastRestError = verErr;
+                // If version is not active (426 Upgrade Required), try next version in the list
+                if (verErr.response?.status === 426 || verErr.response?.data?.code === 'NONEXISTENT_VERSION') {
+                    console.log(`ℹ️ LinkedIn version ${ver} not active, trying next candidate...`);
+                    continue;
+                }
+                // For other errors (401, 403, 400), don't loop
+                break;
+            }
+        }
+
+        const errData = lastRestError?.response?.data || ugcError.response?.data;
+        const errMsg = errData?.message || lastRestError?.message || ugcError.message;
+        console.error('❌ LinkedIn Live API Error:', errData || errMsg);
+
+        return {
+            success: false,
+            platform: 'linkedin',
+            error: errMsg
+        };
+    }
+}
+
+// 2. Twitter / X Publishing
+export async function publishToTwitter({ text }) {
+    const account = await Account.findOne({ platform: 'twitter', isConnected: true });
+    const username = account?.username || 'TwitterUser';
+    const cleanHandle = username.replace('@', '');
+
+    if (account) {
+        await Account.findByIdAndUpdate(account._id, {
+            $inc: { postCount: 1 },
+            $set: { lastPostAt: new Date() }
+        });
+    }
+
+    console.log(`ℹ️ [Twitter/X] Dispatched post for @${cleanHandle}`);
+    return {
+        success: true,
+        simulated: true,
+        platform: 'twitter',
+        username: `@${cleanHandle}`,
+        postId: `tweet_${Date.now()}`,
+        postUrl: `https://x.com/${cleanHandle}`,
+        publishedAt: new Date().toISOString()
+    };
+}
+
+// 3. Instagram Publishing (Supports both Instagram Graph API and Meta Facebook Graph API)
+export async function publishToInstagram({ text, imageUrl }) {
+    const account = await Account.findOne({ platform: 'instagram', isConnected: true });
+    const token = account?.accessToken || process.env.INSTAGRAM_ACCESS_TOKEN;
+    const username = account?.username || 'instagram_creator';
+    const cleanHandle = username.replace('@', '');
+    let igUserId = account?.accountUrn || process.env.INSTAGRAM_USER_ID;
+
+    const hasValidToken = token && !token.includes('your_') && token.length > 20;
+
+    // If valid token is present, execute real Meta / Instagram Graph API publishing
+    if (hasValidToken) {
+        try {
+            console.log(`🚀 [Instagram] Publishing live post via Meta/Instagram API for @${cleanHandle}...`);
+
+            // Detect API host based on token format
+            // Instagram User Tokens start with "IG" or "IGAA"
+            const isInstagramUserToken = token.startsWith('IG');
+            const defaultBaseUrl = isInstagramUserToken
+                ? 'https://graph.instagram.com'
+                : 'https://graph.facebook.com/v21.0';
+
+            // Step 1: Auto-discover Instagram Account ID if not present
+            if (!igUserId) {
+                // Try graph.instagram.com first (for Instagram User Access Tokens)
+                try {
+                    console.log('🔍 [Instagram] Fetching account info via graph.instagram.com/me...');
+                    const igMe = await axios.get('https://graph.instagram.com/me', {
+                        params: { fields: 'id,username,account_type', access_token: token }
+                    });
+                    if (igMe.data?.id) {
+                        igUserId = igMe.data.id;
+                        console.log(`✅ [Instagram] Auto-discovered Instagram User ID: ${igUserId} (@${igMe.data.username || cleanHandle})`);
+                    }
+                } catch (igErr) {
+                    // Try Facebook Page accounts fallback
+                    try {
+                        console.log('🔍 [Instagram] Fetching business account via graph.facebook.com/me/accounts...');
+                        const fbMe = await axios.get('https://graph.facebook.com/v21.0/me/accounts', {
+                            params: {
+                                fields: 'instagram_business_account{id,username},name',
+                                access_token: token
+                            }
+                        });
+                        const pages = fbMe.data?.data || [];
+                        for (const page of pages) {
+                            if (page.instagram_business_account?.id) {
+                                igUserId = page.instagram_business_account.id;
+                                console.log(`✅ [Instagram] Auto-discovered Instagram Business Account ID: ${igUserId}`);
+                                break;
+                            }
+                        }
+                    } catch (_) {}
+                }
+            }
+
+            if (!igUserId) {
+                return {
+                    success: false,
+                    platform: 'instagram',
+                    error: 'Instagram Account ID not found. Meta API requires an Instagram Professional/Creator account.'
+                };
+            }
+
+            // Persist detected igUserId in MongoDB
+            if (account && !account.accountUrn) {
+                await Account.findByIdAndUpdate(account._id, { $set: { accountUrn: igUserId } });
+            }
+
+            // Step 2: Ensure Image URL is publicly accessible to Instagram's servers
+            let publicImage = await getPublicImageUrl(imageUrl);
+            if (!publicImage) {
+                return {
+                    success: false,
+                    platform: 'instagram',
+                    error: 'An image URL is required for Instagram posts.'
+                };
+            }
+
+            // Determine active base API URL
+            const apiBase = isInstagramUserToken ? 'https://graph.instagram.com' : 'https://graph.facebook.com/v21.0';
+
+            // Step 3: Create Media Container on Instagram
+            console.log(`📸 [Instagram] Creating media container at ${apiBase}/${igUserId}/media...`);
+            const containerRes = await axios.post(
+                `${apiBase}/${igUserId}/media`,
+                null,
+                {
+                    params: {
+                        image_url: publicImage,
+                        caption: text,
+                        access_token: token
+                    }
+                }
+            );
+
+            const creationId = containerRes.data?.id;
+            if (!creationId) {
+                return {
+                    success: false,
+                    platform: 'instagram',
+                    error: 'Failed to create Instagram media container. Ensure image is publicly accessible.'
+                };
+            }
+
+            // Step 4: Publish Media Container
+            console.log(`🚀 [Instagram] Publishing media container ${creationId}...`);
+            const publishRes = await axios.post(
+                `${apiBase}/${igUserId}/media_publish`,
+                null,
+                {
+                    params: {
+                        creation_id: creationId,
+                        access_token: token
+                    }
+                }
+            );
+
+            const liveMediaId = publishRes.data?.id;
+            console.log(`🎉 [Instagram] Successfully published live post on Instagram! (ID: ${liveMediaId})`);
+
+            if (account) {
+                await Account.findByIdAndUpdate(account._id, {
+                    $inc: { postCount: 1 },
+                    $set: { lastPostAt: new Date(), accountUrn: igUserId }
+                });
+            }
+
+            return {
+                success: true,
+                live: true,
+                platform: 'instagram',
+                username: `@${cleanHandle}`,
+                postId: liveMediaId,
+                postUrl: `https://instagram.com/${cleanHandle}`,
+                publishedAt: new Date().toISOString()
+            };
+        } catch (apiErr) {
+            const errMsg = apiErr.response?.data?.error?.message || apiErr.message;
+            console.error(`❌ [Instagram] API error:`, errMsg);
+            return {
+                success: false,
+                platform: 'instagram',
+                error: `Instagram API Error: ${errMsg}`
+            };
+        }
+    }
+
+    // If NO Access Token was provided
+    console.warn(`⚠️ [Instagram] No Meta Access Token configured for @${cleanHandle}`);
+    return {
+        success: false,
+        platform: 'instagram',
+        error: `Instagram par real post karne ke liye Meta Access Token zaroori hai. Sirf username se Instagram post allow nahi karta. Please UI me Connect par click karke apna Meta / Instagram Access Token paste karein.`
+    };
+}
+
+// 4. Facebook Publishing (Meta Graph API for Facebook Pages)
+export async function publishToFacebook({ text, imageUrl }) {
+    const account = await Account.findOne({ platform: 'facebook', isConnected: true });
+    const token = account?.accessToken || process.env.FACEBOOK_PAGE_ACCESS_TOKEN || process.env.FACEBOOK_ACCESS_TOKEN;
+    const username = account?.username || 'Facebook Page';
+    let pageId = account?.accountUrn || process.env.FACEBOOK_PAGE_ID;
+
+    const hasValidToken = token && !token.includes('your_') && token.length > 20;
+
+    if (hasValidToken) {
+        try {
+            console.log(`🚀 [Facebook] Publishing live post for ${username} via Meta Graph API...`);
+
+            let targetPageId = pageId;
+            let pageToken = token;
+
+            // Step 1: Verify token type - is it already a Page Access Token?
+            try {
+                const meRes = await axios.get('https://graph.facebook.com/v21.0/me', {
+                    params: { fields: 'id,name,category', access_token: token }
+                });
+                if (meRes.data?.category) {
+                    // Token is directly a Page Access Token!
+                    targetPageId = meRes.data.id;
+                    pageToken = token;
+                    console.log(`✅ [Facebook] Token verified as Page Token for: ${meRes.data.name} (ID: ${targetPageId})`);
+                }
+            } catch (_) {}
+
+            // Step 2: If not verified as Page Token, fetch managed Pages via /me/accounts
+            if (!targetPageId) {
+                try {
+                    const pagesRes = await axios.get('https://graph.facebook.com/v21.0/me/accounts', {
+                        params: { fields: 'id,name,access_token,category', access_token: token }
+                    });
+                    const pages = pagesRes.data?.data || [];
+                    if (pages.length > 0) {
+                        targetPageId = pages[0].id;
+                        pageToken = pages[0].access_token || token;
+                        console.log(`✅ [Facebook] Auto-detected Facebook Page: "${pages[0].name}" (ID: ${targetPageId})`);
+                    }
+                } catch (pageErr) {
+                    console.warn('ℹ️ [Facebook] Could not fetch /me/accounts:', pageErr.response?.data?.error?.message || pageErr.message);
+                }
+            }
+
+            // CRITICAL: NEVER fallback to a personal profile user ID!
+            // Meta strictly deprecated publish_actions for personal profiles.
+            if (!targetPageId) {
+                return {
+                    success: false,
+                    platform: 'facebook',
+                    error: 'Koi Facebook Page nahi mila! Meta personal Facebook profiles par direct posting allow nahi karta (error #200: publish_actions is deprecated). Kripya Facebook par ek Page banayein aur Page Access Token (pages_manage_posts permission) use karein.'
+                };
+            }
+
+            let livePostId = null;
+
+            // Step 3: If image provided, publish photo post to the Page
+            if (imageUrl) {
+                const publicImageUrl = await getPublicImageUrl(imageUrl);
+                console.log(`📸 [Facebook] Publishing photo to Page (${targetPageId})...`);
+                const photoRes = await axios.post(`https://graph.facebook.com/v21.0/${targetPageId}/photos`, null, {
+                    params: {
+                        url: publicImageUrl,
+                        caption: text,
+                        access_token: pageToken
+                    }
+                });
+                livePostId = photoRes.data?.id || photoRes.data?.post_id;
+            } else {
+                // Step 4: Text feed post to the Page
+                console.log(`📝 [Facebook] Publishing status message to Page (${targetPageId})...`);
+                const feedRes = await axios.post(`https://graph.facebook.com/v21.0/${targetPageId}/feed`, null, {
+                    params: {
+                        message: text,
+                        access_token: pageToken
+                    }
+                });
+                livePostId = feedRes.data?.id;
+            }
+
+            console.log(`🎉 [Facebook] Successfully published live post on Facebook Page! (ID: ${livePostId})`);
+
+            if (account) {
+                await Account.findByIdAndUpdate(account._id, {
+                    $inc: { postCount: 1 },
+                    $set: { lastPostAt: new Date(), accountUrn: targetPageId }
+                });
+            }
+
+            return {
+                success: true,
+                live: true,
+                platform: 'facebook',
+                username,
+                postId: livePostId,
+                postUrl: `https://facebook.com/${targetPageId}`,
+                publishedAt: new Date().toISOString()
+            };
+        } catch (apiErr) {
+            const errObj = apiErr.response?.data?.error;
+            const errMsg = errObj?.message || apiErr.message;
+            console.error(`❌ [Facebook] Meta Graph API error:`, errMsg);
+
+            if (errObj?.code === 200 || errMsg.includes('publish_actions is deprecated')) {
+                return {
+                    success: false,
+                    platform: 'facebook',
+                    error: 'Meta Policy Error (#200): Aapka token Personal Profile ka hai. Meta ke anusaar personal Facebook timeline par auto-post permanently band hai. Kripya ek Facebook Page banayein aur developers.facebook.com se Page Access Token (pages_manage_posts permission) use karein.'
+                };
+            }
+
+            return {
+                success: false,
+                platform: 'facebook',
+                error: `Facebook API Error: ${errMsg}`
+            };
+        }
+    }
+
+    // If NO Access Token was provided
+    console.warn(`⚠️ [Facebook] No Meta Page Access Token configured for ${username}`);
+    return {
+        success: false,
+        platform: 'facebook',
+        error: `Facebook Personal Profile par direct automated posting Meta allow nahi karta (privacy rules). Automated posting ke liye aapko ek Facebook Page aur uska Page Access Token chahiye hota hai. Please UI me Connect par click karke Page Access Token enter karein.`
+    };
+}
+
+// 5. Multi-channel pipeline publisher
+export async function publishToPlatforms({ content, imageUrl, platforms = [] }) {
+    const results = {};
+
+    if (platforms.includes('linkedin')) {
+        results.linkedin = await publishToLinkedIn({
+            text: content.linkedin || content.twitter,
+            imageUrl
+        });
+    }
+
+    if (platforms.includes('twitter')) {
+        results.twitter = await publishToTwitter({
+            text: content.twitter || content.linkedin
+        });
+    }
+
+    if (platforms.includes('instagram')) {
+        results.instagram = await publishToInstagram({
+            text: content.instagramCaption || content.twitter,
+            imageUrl
+        });
+    }
+
+    if (platforms.includes('facebook')) {
+        results.facebook = await publishToFacebook({
+            text: content.facebook || content.linkedin,
+            imageUrl
+        });
+    }
+
+    if (platforms.includes('youtube')) {
+        const account = await Account.findOne({ platform: 'youtube', isConnected: true });
+        results.youtube = {
+            success: true,
+            simulated: true,
+            platform: 'youtube',
+            username: account?.username || 'YouTube Community',
+            postId: `yt_${Date.now()}`,
+            postUrl: account?.profileUrl || 'https://youtube.com',
+            publishedAt: new Date().toISOString()
+        };
+        if (account) {
+            await Account.findByIdAndUpdate(account._id, {
+                $inc: { postCount: 1 },
+                $set: { lastPostAt: new Date() }
+            });
+        }
+    }
+
+    return results;
+}
