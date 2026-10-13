@@ -21,6 +21,9 @@ import {
     processPostComments,
     replyToCommentManual,
     previewCommentReply,
+    likeLinkedInComment,
+    resolveUrlRedirect,
+    parseLinkedInCommentUrl,
     startAutoReplyCron
 } from './services/autoReplyService.js';
 
@@ -543,6 +546,38 @@ app.post('/api/linkedin/reply-comment', async (req, res) => {
             parentCommentUrn
         });
         res.json({ success: true, result });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Like a comment or post on LinkedIn directly
+app.post('/api/linkedin/like-comment', async (req, res) => {
+    try {
+        const { commentUrn, postUrn } = req.body;
+        const target = commentUrn || postUrn;
+        if (!target) {
+            return res.status(400).json({ success: false, error: 'commentUrn or postUrn is required' });
+        }
+
+        const account = await Account.findOne({ platform: 'linkedin', isConnected: true });
+        const token = account?.accessToken || process.env.LINKEDIN_ACCESS_TOKEN;
+        const authorUrn = account?.accountUrn || process.env.LINKEDIN_PERSON_URN;
+
+        let finalTarget = target.trim();
+        if (finalTarget.startsWith('http')) {
+            finalTarget = await resolveUrlRedirect(finalTarget);
+            const parsed = parseLinkedInCommentUrl(finalTarget);
+            if (parsed.commentUrn) finalTarget = parsed.commentUrn;
+            else if (parsed.postUrn) finalTarget = parsed.postUrn;
+        }
+
+        const result = await likeLinkedInComment({ targetUrn: finalTarget, token, authorUrn });
+        res.json({
+            success: Boolean(result.success),
+            message: result.success ? 'Comment liked successfully on LinkedIn!' : 'Could not react to comment',
+            details: result
+        });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }

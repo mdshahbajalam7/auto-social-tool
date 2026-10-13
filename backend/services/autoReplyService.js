@@ -73,7 +73,7 @@ Instructions:
                 console.log(`🤖 [AI Auto-Reply] Generated reply via OpenAI`);
                 return reply.replace(/^["']|["']$/g, '').trim();
             }
-        } catch (_) {}
+        } catch (_) { }
     }
 
     // 3. Fallback human response
@@ -152,7 +152,7 @@ export function parseLinkedInCommentUrl(input, fallbackPostUrn = '') {
     let decoded = input.trim();
     try {
         decoded = decodeURIComponent(decoded);
-    } catch (_) {}
+    } catch (_) { }
 
     let commentUrn = null;
     let postUrn = null;
@@ -353,47 +353,105 @@ export async function postLinkedInReply({ targetUrn, token, authorUrn, replyText
  */
 export async function likeLinkedInComment({ targetUrn, token, authorUrn }) {
     if (!targetUrn || !token || !authorUrn) return { success: false, error: 'Missing parameters' };
-    const encodedUrn = encodeURIComponent(targetUrn);
 
-    const payload = {
-        actor: authorUrn,
-        reactionType: 'LIKE'
-    };
-
-    // Method 1: v2 reactions
-    try {
-        await axios.post(`https://api.linkedin.com/v2/socialActions/${encodedUrn}/reactions`, payload, {
-            headers: {
-                Authorization: `Bearer ${token}`,
-                'X-Restli-Protocol-Version': '2.0.0',
-                'Content-Type': 'application/json'
-            },
-            timeout: 10000
-        });
-        console.log(`❤️ [LinkedIn] Auto-liked comment: ${targetUrn}`);
-        return { success: true };
-    } catch (v2Err) {
-        console.warn('ℹ️ [LinkedIn] v2 like note:', v2Err.response?.data?.message || v2Err.message);
+    // Support candidate URN formats (e.g. with or without urn:li: prefix in inner activity)
+    const targetCandidates = [targetUrn];
+    if (targetUrn.includes('(urn:li:activity:')) {
+        targetCandidates.push(targetUrn.replace('(urn:li:activity:', '(activity:'));
+    } else if (targetUrn.includes('(activity:')) {
+        targetCandidates.push(targetUrn.replace('(activity:', '(urn:li:activity:'));
     }
 
-    // Method 2: REST reactions fallback
-    try {
-        await axios.post(`https://api.linkedin.com/rest/socialActions/${encodedUrn}/reactions`, payload, {
-            headers: {
-                Authorization: `Bearer ${token}`,
-                'LinkedIn-Version': '202502',
-                'X-Restli-Protocol-Version': '2.0.0',
-                'Content-Type': 'application/json'
-            },
-            timeout: 10000
-        });
-        console.log(`❤️ [LinkedIn REST] Auto-liked comment: ${targetUrn}`);
-        return { success: true };
-    } catch (restErr) {
-        // Suppress silently if already liked or permission not granted
+    // Strategy 1: REST Reactions API (POST https://api.linkedin.com/rest/reactions?actor={actorUrn})
+    const restVersions = ['202502', '202411', '202410', '202409'];
+    for (const ver of restVersions) {
+        for (const cand of targetCandidates) {
+            try {
+                await axios.post(`https://api.linkedin.com/rest/reactions?actor=${encodeURIComponent(authorUrn)}`, {
+                    root: cand,
+                    reactionType: 'LIKE'
+                }, {
+                    headers: {
+                        Authorization: `Bearer ${token}`,
+                        'LinkedIn-Version': ver,
+                        'X-Restli-Protocol-Version': '2.0.0',
+                        'Content-Type': 'application/json'
+                    },
+                    timeout: 10000
+                });
+                console.log(`❤️ [LinkedIn REST] Successfully liked comment (${ver}): ${cand}`);
+                return { success: true, method: 'rest/reactions', target: cand };
+            } catch (err) {
+                if (err.response?.status === 409) {
+                    console.log(`❤️ [LinkedIn] Comment already liked: ${cand}`);
+                    return { success: true, alreadyLiked: true };
+                }
+                if (err.response?.status === 426 || err.response?.data?.code === 'NONEXISTENT_VERSION') {
+                    break;
+                }
+            }
+        }
     }
 
-    return { success: false };
+    // Strategy 2: v2 Reactions API (POST https://api.linkedin.com/v2/reactions?actor={actorUrn})
+    for (const cand of targetCandidates) {
+        try {
+            await axios.post(`https://api.linkedin.com/v2/reactions?actor=${encodeURIComponent(authorUrn)}`, {
+                root: cand,
+                reactionType: 'LIKE'
+            }, {
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    'X-Restli-Protocol-Version': '2.0.0',
+                    'Content-Type': 'application/json'
+                },
+                timeout: 10000
+            });
+            console.log(`❤️ [LinkedIn] Successfully liked comment via v2/reactions: ${cand}`);
+            return { success: true, method: 'v2/reactions', target: cand };
+        } catch (_) {}
+    }
+
+    // Strategy 3: v2 Social Actions Likes (POST https://api.linkedin.com/v2/socialActions/{encodedUrn}/likes)
+    for (const cand of targetCandidates) {
+        try {
+            const encoded = encodeURIComponent(cand);
+            await axios.post(`https://api.linkedin.com/v2/socialActions/${encoded}/likes`, {
+                actor: authorUrn
+            }, {
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    'X-Restli-Protocol-Version': '2.0.0',
+                    'Content-Type': 'application/json'
+                },
+                timeout: 10000
+            });
+            console.log(`❤️ [LinkedIn] Successfully liked comment via v2/socialActions/likes: ${cand}`);
+            return { success: true, method: 'v2/socialActions/likes', target: cand };
+        } catch (_) {}
+    }
+
+    // Strategy 4: v2 Social Actions Reactions (POST https://api.linkedin.com/v2/socialActions/{encodedUrn}/reactions)
+    for (const cand of targetCandidates) {
+        try {
+            const encoded = encodeURIComponent(cand);
+            await axios.post(`https://api.linkedin.com/v2/socialActions/${encoded}/reactions`, {
+                actor: authorUrn,
+                reactionType: 'LIKE'
+            }, {
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    'X-Restli-Protocol-Version': '2.0.0',
+                    'Content-Type': 'application/json'
+                },
+                timeout: 10000
+            });
+            console.log(`❤️ [LinkedIn] Successfully liked comment via v2/socialActions/reactions: ${cand}`);
+            return { success: true, method: 'v2/socialActions/reactions', target: cand };
+        } catch (_) {}
+    }
+
+    return { success: false, error: 'Could not react to comment' };
 }
 
 /**
@@ -405,7 +463,7 @@ export async function replyToCommentManual({ postId, linkedinPostUrn, commentTex
     if (postId) {
         try {
             post = await Post.findById(postId);
-        } catch (_) {}
+        } catch (_) { }
     }
 
     const account = await Account.findOne({ platform: 'linkedin', isConnected: true });
@@ -479,8 +537,15 @@ export async function replyToCommentManual({ postId, linkedinPostUrn, commentTex
     }
 
     // 5. Auto-Like the user's comment
+    let autoLiked = false;
     if (finalParentComment) {
-        likeLinkedInComment({ targetUrn: finalParentComment, token, authorUrn }).catch(() => {});
+        try {
+            const likeRes = await likeLinkedInComment({ targetUrn: finalParentComment, token, authorUrn });
+            autoLiked = Boolean(likeRes?.success);
+            console.log(`👍 [LinkedIn Auto-Like] Status: ${autoLiked ? 'SUCCESS' : 'ATTEMPTED'} on: ${finalParentComment}`);
+        } catch (likeErr) {
+            console.warn('Auto-like note:', likeErr.message);
+        }
     }
 
     const replyRecord = {
@@ -489,6 +554,7 @@ export async function replyToCommentManual({ postId, linkedinPostUrn, commentTex
         replyText: aiReply,
         targetUrn,
         commenterName: commenterName || 'LinkedIn User',
+        liked: autoLiked,
         repliedAt: new Date()
     };
 
@@ -504,6 +570,7 @@ export async function replyToCommentManual({ postId, linkedinPostUrn, commentTex
         parentCommentUrn: finalParentComment || null,
         targetUrn,
         commenterName: commenterName || 'LinkedIn User',
+        liked: autoLiked,
         timestamp: new Date().toISOString()
     };
 }
@@ -583,7 +650,7 @@ export async function processPostComments(post, account) {
             console.log(`🎉 [Auto-Reply] Replied to comment ${comment.id}: "${aiReply.slice(0, 60)}..."`);
 
             // Auto-like the comment
-            likeLinkedInComment({ targetUrn: comment.id, token, authorUrn }).catch(() => {});
+            likeLinkedInComment({ targetUrn: comment.id, token, authorUrn }).catch(() => { });
         }
     }
 
@@ -674,7 +741,7 @@ export function startAutoReplyCron() {
 
     // Run initial scan 5 seconds after startup
     setTimeout(() => {
-        autoReplyAllRecentLinkedInPosts().catch(() => {});
+        autoReplyAllRecentLinkedInPosts().catch(() => { });
     }, 5000);
 }
 
@@ -693,7 +760,7 @@ export async function previewCommentReply({ postId, commentText, commenterName, 
                 topic = post.research?.topic || post.niche || topic;
                 snippet = post.content?.linkedin || post.content?.twitter || snippet;
             }
-        } catch (_) {}
+        } catch (_) { }
     }
 
     const cleanName = commenterName && !['A professional', 'LinkedIn Member', 'LinkedIn User'].includes(commenterName.trim())
@@ -736,7 +803,7 @@ Return raw JSON only:
                 const parsed = JSON.parse(raw.slice(b1, b2 + 1));
                 return parsed;
             }
-        } catch (_) {}
+        } catch (_) { }
     }
 
     const fallbackReply = await generateAIReply({

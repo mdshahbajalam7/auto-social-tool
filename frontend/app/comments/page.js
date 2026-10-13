@@ -14,7 +14,9 @@ import {
   ExternalLink,
   Layers,
   Flame,
-  Globe
+  Globe,
+  ThumbsUp,
+  Heart
 } from 'lucide-react';
 import { Linkedin } from '@/components/SocialIcons';
 
@@ -159,7 +161,49 @@ export default function CommentsPage() {
     }
   };
 
-  // Post Reply LIVE to LinkedIn
+  const [isLikingComment, setIsLikingComment] = useState(false);
+
+  // Standalone Like Comment
+  const handleLikeCommentOnly = async () => {
+    if (!commentLinkOrUrn.trim()) {
+      setBannerMsg({ type: 'error', text: 'Please paste the comment link in step 2 to like it!' });
+      return;
+    }
+
+    setIsLikingComment(true);
+    setBannerMsg({ type: '', text: '' });
+    try {
+      const selectedPost = posts.find((p) => p._id === commentPostId);
+      const postUrn = commentPostId === 'custom' ? commentCustomUrn.trim() : (selectedPost?.publishResult?.linkedin?.postId || '');
+
+      const res = await fetch(`${BACKEND_URL}/api/linkedin/like-comment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          commentUrn: commentLinkOrUrn.trim(),
+          postUrn
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setBannerMsg({
+          type: 'success',
+          text: '❤️ Comment successfully liked on LinkedIn (👍 Reaction registered)!'
+        });
+      } else {
+        setBannerMsg({
+          type: 'error',
+          text: data.error || data.message || 'Could not react to comment.'
+        });
+      }
+    } catch (err) {
+      setBannerMsg({ type: 'error', text: 'Error liking comment: ' + err.message });
+    } finally {
+      setIsLikingComment(false);
+    }
+  };
+
+  // Post Reply LIVE to LinkedIn (with auto-like)
   const handlePublishCommentReply = async () => {
     if (!replyDraft.trim()) return;
 
@@ -186,9 +230,10 @@ export default function CommentsPage() {
       const data = await res.json();
 
       if (data.success) {
+        const likeNotice = data.result?.liked ? ' + Comment Auto-Liked (👍)' : '';
         setBannerMsg({
           type: 'success',
-          text: `🎉 Comment reply successfully posted LIVE on LinkedIn! AI replied: "${data.result?.replyText}"`
+          text: `🎉 Comment reply posted LIVE on LinkedIn${likeNotice}! AI replied: "${data.result?.replyText}"`
         });
         setIncomingComment('');
         setCommentLinkOrUrn('');
@@ -502,31 +547,50 @@ export default function CommentsPage() {
                     )}
                   </div>
 
-                  <div className="pt-2">
-                    <button
-                      type="button"
-                      onClick={handlePublishCommentReply}
-                      disabled={isPostingComment || !replyDraft.trim()}
-                      className={`w-full py-3.5 rounded-xl text-xs font-mono font-bold text-white transition shadow-sm flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 ${
-                        commentLinkOrUrn.trim()
-                          ? 'bg-emerald-600 hover:bg-emerald-700'
-                          : 'bg-[#0a66c2] hover:bg-[#004182]'
-                      }`}
-                    >
-                      {isPostingComment ? (
-                        <RefreshCw size={14} className="animate-spin" />
-                      ) : (
-                        <Send size={14} />
+                  <div className="pt-2 space-y-2">
+                    <div className="flex flex-col sm:flex-row items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handlePublishCommentReply}
+                        disabled={isPostingComment || isLikingComment || !replyDraft.trim()}
+                        className={`flex-1 w-full py-3.5 rounded-xl text-xs font-mono font-bold text-white transition shadow-sm flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 ${
+                          commentLinkOrUrn.trim()
+                            ? 'bg-emerald-600 hover:bg-emerald-700'
+                            : 'bg-[#0a66c2] hover:bg-[#004182]'
+                        }`}
+                      >
+                        {isPostingComment ? (
+                          <RefreshCw size={14} className="animate-spin" />
+                        ) : (
+                          <Send size={14} />
+                        )}
+                        {isPostingComment
+                          ? 'Posting LIVE & Liking...'
+                          : commentLinkOrUrn.trim()
+                            ? '💬 Reply & Auto-Like (👍 + 💬)'
+                            : '🚀 Post as Root Comment (Outside Thread)'}
+                      </button>
+
+                      {commentLinkOrUrn.trim() && (
+                        <button
+                          type="button"
+                          onClick={handleLikeCommentOnly}
+                          disabled={isLikingComment || isPostingComment}
+                          className="w-full sm:w-auto px-4 py-3.5 rounded-xl text-xs font-mono font-bold text-stone-700 bg-stone-100 hover:bg-stone-200 border border-stone-200/80 transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 shrink-0"
+                          title="Like this comment on LinkedIn without replying"
+                        >
+                          {isLikingComment ? (
+                            <RefreshCw size={14} className="animate-spin" />
+                          ) : (
+                            <ThumbsUp size={14} className="text-blue-600" />
+                          )}
+                          {isLikingComment ? 'Liking...' : '👍 Like Only'}
+                        </button>
                       )}
-                      {isPostingComment
-                        ? 'Posting LIVE to LinkedIn...'
-                        : commentLinkOrUrn.trim()
-                          ? '💬 Post Reply Inside Comment Thread'
-                          : '🚀 Post as Root Comment (Outside Thread)'}
-                    </button>
-                    <p className="text-[10px] text-stone-500 font-sans text-center mt-1.5">
+                    </div>
+                    <p className="text-[10px] text-stone-500 font-sans text-center mt-1">
                       {commentLinkOrUrn.trim()
-                        ? '🎯 Target comment thread linked: Replying directly inside the thread under this comment.'
+                        ? '🎯 Target linked: Replying inside thread AND auto-liking (👍) commenter.'
                         : 'ℹ️ No comment link: Will post directly on the post outside any specific thread.'}
                     </p>
                   </div>
@@ -582,6 +646,11 @@ export default function CommentsPage() {
                       </span>
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0">
+                      {item.liked && (
+                        <span className="text-[10px] font-mono text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.2 rounded-full font-medium flex items-center gap-1">
+                          <ThumbsUp size={10} className="text-rose-600" /> Liked
+                        </span>
+                      )}
                       <span className="text-[10px] font-mono text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.2 rounded-full font-medium">
                         ✓ Published Live
                       </span>
