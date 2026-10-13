@@ -21,7 +21,6 @@ import {
   Globe,
   Copy,
   Check,
-  LayoutTemplate,
   Bot,
   MessageSquare,
   Send,
@@ -92,7 +91,6 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [statusText, setStatusText] = useState('');
   const [activeTab, setActiveTab] = useState('linkedin');
-  const [visualMode, setVisualMode] = useState('art'); // 'art' (AI Artwork default) or 'card' (Classic card)
   const [copied, setCopied] = useState(false);
 
   // Connected Accounts State (from MongoDB)
@@ -1057,134 +1055,47 @@ export default function Home() {
                       Visual Asset Studio
                     </h3>
                   </div>
-
-                  {/* Switch between AI Image & Card Layout */}
-                  <div className="flex items-center bg-[#fcfbf8] p-1 rounded-xl border border-stone-200/80 gap-1 text-xs font-mono">
-                    <button
-                      type="button"
-                      onClick={() => setVisualMode('art')}
-                      className={`px-2.5 py-1 rounded-lg transition cursor-pointer flex items-center gap-1.5 ${visualMode === 'art'
-                        ? 'bg-stone-900 text-white font-medium shadow-xs'
-                        : 'text-stone-500 hover:text-stone-800'
-                        }`}
-                    >
-                      <ImageIcon size={12} /> AI Image (Primary)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setVisualMode('card')}
-                      className={`px-2.5 py-1 rounded-lg transition cursor-pointer flex items-center gap-1.5 ${visualMode === 'card'
-                        ? 'bg-stone-900 text-white font-medium shadow-xs'
-                        : 'text-stone-500 hover:text-stone-800'
-                        }`}
-                    >
-                      <LayoutTemplate size={12} /> Card Mockup
-                    </button>
-                  </div>
+                  <span className="text-[10px] font-mono text-stone-400 bg-stone-50 border border-stone-200/80 px-2.5 py-1 rounded-lg">
+                    AI Artwork (1:1)
+                  </span>
                 </div>
 
-                {visualMode === 'card' ? (
-                  /* 1-to-1 Recreation of the User's Classic Minimalist Card Reference */
-                  <div className="bg-[#fcfbf8] border border-stone-200 rounded-2xl p-5 sm:p-6 shadow-xs flex flex-col justify-between min-h-[320px]">
-                    {/* Top Bar: * [Icon] Topic / Skill Title */}
-                    <div className="flex items-center justify-between pb-3.5 border-b border-stone-200/60">
-                      <div className="flex items-center gap-2">
-                        <span className="text-red-500 font-bold text-xs">✱</span>
-                        <div className="w-5 h-5 rounded-md bg-red-600 text-white flex items-center justify-center">
-                          <YouTube size={12} />
-                        </div>
-                        <span className="text-xs font-bold text-stone-800 font-sans">
-                          {PLATFORM_CONFIG[activeTab]?.name} Agent Skill
-                        </span>
-                      </div>
-                      <span className="text-[10px] font-mono text-stone-400">
-                        Public
-                      </span>
-                    </div>
-
-                    {/* Card Body */}
-                    <div className="py-4 space-y-3">
-                      <div className="flex items-center gap-2">
-                        <span className="text-stone-500 text-xs">🗂</span>
-                        <h4 className="font-mono text-sm font-bold text-stone-900 tracking-tight">
-                          {(latestPost.research?.topic || 'agent-skill')
-                            .toLowerCase()
-                            .replace(/[^a-z0-9]+/g, '-')
-                            .slice(0, 32)}
-                        </h4>
-                        <span className="text-[10px] font-mono bg-stone-100 text-stone-600 border border-stone-200 px-2 py-0.5 rounded-full">
-                          Public
-                        </span>
-                      </div>
-
-                      <p className="text-xs text-stone-700 font-sans leading-relaxed">
-                        {latestPost.research?.summary || 'Autonomous multi-channel skill workflow orchestrator.'}
-                      </p>
-
-                      {/* Pill tags matching reference screenshot */}
-                      <div className="flex flex-wrap items-center gap-2 pt-2">
-                        <span className="text-xs font-mono bg-stone-100/90 text-stone-600 border border-stone-200 px-2.5 py-0.5 rounded-full">
-                          MIT License
-                        </span>
-                        <span className="text-xs font-mono bg-red-50 text-red-600 border border-red-200/70 px-2.5 py-0.5 rounded-full">
-                          Open source
-                        </span>
-                        <span className="text-xs font-mono bg-stone-100/90 text-stone-600 border border-stone-200 px-2.5 py-0.5 rounded-full">
-                          11 skills
-                        </span>
-                      </div>
-
-                      {/* Clean source link */}
-                      <div className="pt-2 text-[11px] font-mono text-stone-400 truncate">
-                        github.com/···/{(latestPost.niche || 'agent-skill').toLowerCase().replace(/\s+/g, '-')}
-                      </div>
-                    </div>
-
-                    {/* Bottom Red Progress Scrubber Line */}
-                    <div className="pt-3 border-t border-stone-200/60">
-                      <div className="w-full h-1 bg-stone-200 rounded-full overflow-hidden relative">
-                        <div className="h-full bg-red-500 w-1/4 rounded-full" />
-                      </div>
-                    </div>
+                {/* Clean Warm Editorial AI Artwork */}
+                <div className="aspect-square w-full rounded-2xl overflow-hidden bg-[#fcfbf8] border border-stone-200 flex items-center justify-center relative group">
+                  <img
+                    src={normalizeMediaUrl(latestPost.imageUrl)}
+                    alt="AI Editorial Creative"
+                    onError={(e) => {
+                      const fallbackPrompt = encodeURIComponent(
+                        `${latestPost.research?.topic || latestPost.niche || 'Technology Innovation'}, 3D modern conceptual illustration, minimal, 8k`
+                      );
+                      const fallbackUrl = `https://image.pollinations.ai/prompt/${fallbackPrompt}?width=1080&height=1080&nologo=true&seed=42`;
+                      e.currentTarget.src = fallbackUrl;
+                      setLatestPost((prev) => prev ? { ...prev, imageUrl: fallbackUrl } : prev);
+                    }}
+                    className="w-full h-full object-cover object-top"
+                  />
+                  <div className="absolute bottom-3 right-3 flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleRegenerateImage}
+                      disabled={isRegeneratingImage}
+                      className="bg-stone-900/80 hover:bg-stone-900 text-white px-2.5 py-1.5 rounded-xl text-xs font-mono backdrop-blur-xs transition flex items-center gap-1.5 shadow-sm disabled:opacity-50 cursor-pointer"
+                      title="Generate a new AI visual"
+                    >
+                      <RefreshCw size={12} className={isRegeneratingImage ? 'animate-spin' : ''} />
+                      {isRegeneratingImage ? 'Creating...' : 'New Visual'}
+                    </button>
+                    <a
+                      href={normalizeMediaUrl(latestPost.imageUrl)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="bg-stone-900/80 hover:bg-stone-900 text-white p-2 rounded-xl text-xs font-mono backdrop-blur-xs transition flex items-center gap-1.5 shadow-sm"
+                    >
+                      <ExternalLink size={13} />
+                    </a>
                   </div>
-                ) : (
-                  /* Clean Warm Editorial AI Artwork */
-                  <div className="aspect-square w-full rounded-2xl overflow-hidden bg-[#fcfbf8] border border-stone-200 flex items-center justify-center relative group">
-                    <img
-                      src={normalizeMediaUrl(latestPost.imageUrl)}
-                      alt="AI Editorial Creative"
-                      onError={(e) => {
-                        const fallbackPrompt = encodeURIComponent(
-                          `${latestPost.research?.topic || latestPost.niche || 'Technology Innovation'}, 3D modern conceptual illustration, minimal, 8k`
-                        );
-                        const fallbackUrl = `https://image.pollinations.ai/prompt/${fallbackPrompt}?width=1080&height=1080&nologo=true&seed=42`;
-                        e.currentTarget.src = fallbackUrl;
-                        setLatestPost((prev) => prev ? { ...prev, imageUrl: fallbackUrl } : prev);
-                      }}
-                      className="w-full h-full object-cover object-top"
-                    />
-                    <div className="absolute bottom-3 right-3 flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={handleRegenerateImage}
-                        disabled={isRegeneratingImage}
-                        className="bg-stone-900/80 hover:bg-stone-900 text-white px-2.5 py-1.5 rounded-xl text-xs font-mono backdrop-blur-xs transition flex items-center gap-1.5 shadow-sm disabled:opacity-50 cursor-pointer"
-                        title="Generate a new AI visual"
-                      >
-                        <RefreshCw size={12} className={isRegeneratingImage ? 'animate-spin' : ''} />
-                        {isRegeneratingImage ? 'Creating...' : 'New Visual'}
-                      </button>
-                      <a
-                        href={normalizeMediaUrl(latestPost.imageUrl)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="bg-stone-900/80 hover:bg-stone-900 text-white p-2 rounded-xl text-xs font-mono backdrop-blur-xs transition flex items-center gap-1.5 shadow-sm"
-                      >
-                        <ExternalLink size={13} />
-                      </a>
-                    </div>
-                  </div>
-                )}
+                </div>
               </div>
 
               <div className="mt-4 pt-3 border-t border-stone-100 flex items-center justify-between text-xs text-stone-400 font-mono">
