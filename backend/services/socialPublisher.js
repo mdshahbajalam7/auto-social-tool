@@ -484,8 +484,14 @@ export async function publishToTwitter({ text, imageUrl }) {
 
     try {
         console.log(`🚀 [Twitter/X] Publishing live tweet as @${cleanHandle}...`);
+        const isOAuth2Format = accessToken && !accessToken.includes('-') && accessToken.length > 25;
         let client;
-        if (hasOAuth1) {
+
+        if (isOAuth2Format) {
+            console.log('🔑 [Twitter/X] Detected OAuth 2.0 User Access Token. Using Bearer authentication.');
+            client = new TwitterApi(accessToken.trim());
+        } else if (hasOAuth1) {
+            console.log('🔑 [Twitter/X] Using OAuth 1.0a authentication.');
             client = new TwitterApi({
                 appKey: apiKey.trim(),
                 appSecret: apiSecret.trim(),
@@ -498,7 +504,7 @@ export async function publishToTwitter({ text, imageUrl }) {
 
         // Optional media upload if image is present and OAuth 1.0a is configured
         let mediaId = null;
-        if (imageUrl && hasOAuth1) {
+        if (imageUrl && hasOAuth1 && !isOAuth2Format) {
             try {
                 let imageBuffer = null;
                 if (imageUrl.startsWith('data:image/')) {
@@ -533,7 +539,28 @@ export async function publishToTwitter({ text, imageUrl }) {
             tweetPayload.media = { media_ids: [mediaId] };
         }
 
-        const tweetRes = await client.v2.tweet(tweetPayload);
+        let tweetRes;
+        try {
+            tweetRes = await client.v2.tweet(tweetPayload);
+        } catch (firstErr) {
+            // If primary client failed with 401/403, attempt alternate mode if credentials exist
+            if (isOAuth2Format && hasOAuth1) {
+                console.warn('⚠️ [Twitter/X] OAuth 2.0 attempt failed, attempting OAuth 1.0a fallback...', firstErr.message);
+                const fallbackClient = new TwitterApi({
+                    appKey: apiKey.trim(),
+                    appSecret: apiSecret.trim(),
+                    accessToken: accessToken.trim(),
+                    accessSecret: accessTokenSecret.trim(),
+                });
+                tweetRes = await fallbackClient.v2.tweet(tweetPayload);
+            } else if (!isOAuth2Format && accessToken) {
+                console.warn('⚠️ [Twitter/X] OAuth 1.0a attempt failed, attempting OAuth 2.0 Bearer fallback...', firstErr.message);
+                const fallbackClient = new TwitterApi(accessToken.trim());
+                tweetRes = await fallbackClient.v2.tweet(tweetPayload);
+            } else {
+                throw firstErr;
+            }
+        }
         const tweetId = tweetRes.data?.id || `tweet_${Date.now()}`;
         const tweetUrl = `https://x.com/${cleanHandle}/status/${tweetId}`;
         console.log(`🎉 [Twitter/X] Tweet published live! URL: ${tweetUrl}`);
