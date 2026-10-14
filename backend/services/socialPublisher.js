@@ -542,24 +542,20 @@ export async function publishToTwitter({ text, imageUrl }) {
         let tweetRes;
         try {
             tweetRes = await client.v2.tweet(tweetPayload);
-        } catch (firstErr) {
-            // If primary client failed with 401/403, attempt alternate mode if credentials exist
-            if (isOAuth2Format && hasOAuth1) {
-                console.warn('⚠️ [Twitter/X] OAuth 2.0 attempt failed, attempting OAuth 1.0a fallback...', firstErr.message);
-                const fallbackClient = new TwitterApi({
-                    appKey: apiKey.trim(),
-                    appSecret: apiSecret.trim(),
-                    accessToken: accessToken.trim(),
-                    accessSecret: accessTokenSecret.trim(),
-                });
-                tweetRes = await fallbackClient.v2.tweet(tweetPayload);
-            } else if (!isOAuth2Format && accessToken) {
-                console.warn('⚠️ [Twitter/X] OAuth 1.0a attempt failed, attempting OAuth 2.0 Bearer fallback...', firstErr.message);
-                const fallbackClient = new TwitterApi(accessToken.trim());
-                tweetRes = await fallbackClient.v2.tweet(tweetPayload);
-            } else {
-                throw firstErr;
+        } catch (err) {
+            console.error('❌ [Twitter/X] Live Publish Error:', err.data || err.message);
+            const status = err.status || err.code || err.data?.status;
+            let detail = err.data?.detail || err.data?.title || err.message;
+
+            if (status === 402 || detail?.includes('credits depleted')) {
+                detail = 'X/Twitter Developer Account me API credits khatam (depleted) ho gaye hain. Twitter Developer Portal (developer.x.com) par billing/credits check karein.';
             }
+
+            return {
+                success: false,
+                platform: 'twitter',
+                error: `Twitter API Error: ${detail}`
+            };
         }
         const tweetId = tweetRes.data?.id || `tweet_${Date.now()}`;
         const tweetUrl = `https://x.com/${cleanHandle}/status/${tweetId}`;
@@ -581,7 +577,7 @@ export async function publishToTwitter({ text, imageUrl }) {
             publishedAt: new Date().toISOString()
         };
     } catch (err) {
-        console.error('❌ [Twitter/X] Live Publish Error:', err.data || err.message);
+        console.error('❌ [Twitter/X] Live Publish General Error:', err.data || err.message);
         const detail = err.data?.detail || err.data?.title || err.message;
         return {
             success: false,
