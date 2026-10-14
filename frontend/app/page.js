@@ -108,6 +108,9 @@ export default function Home() {
   const [formUsername, setFormUsername] = useState('');
   const [formProfileUrl, setFormProfileUrl] = useState('');
   const [formToken, setFormToken] = useState('');
+  const [formApiKey, setFormApiKey] = useState('');
+  const [formApiSecret, setFormApiSecret] = useState('');
+  const [formAccessTokenSecret, setFormAccessTokenSecret] = useState('');
   const [formSaving, setFormSaving] = useState(false);
 
   // Publishing State
@@ -328,7 +331,10 @@ export default function Home() {
     const existing = accounts[platform];
     setFormUsername(existing?.username || '');
     setFormProfileUrl(existing?.profileUrl || '');
-    setFormToken('');
+    setFormToken(platform === 'twitter' ? (existing?.accessToken || '1466828560941740036-YUrC33Pluc05wWRLMUEvOCt6JdDP26') : '');
+    setFormApiKey(existing?.apiKey || '');
+    setFormApiSecret('');
+    setFormAccessTokenSecret('');
     setModalOpen(true);
   };
 
@@ -339,15 +345,23 @@ export default function Home() {
 
     setFormSaving(true);
     try {
+      const payload = {
+        platform: selectedPlatform,
+        username: formUsername.trim(),
+        profileUrl: formProfileUrl.trim() || `${PLATFORM_CONFIG[selectedPlatform].defaultUrl}${formUsername.replace('@', '')}`,
+        accessToken: formToken.trim()
+      };
+
+      if (selectedPlatform === 'twitter') {
+        payload.apiKey = formApiKey.trim();
+        payload.apiSecret = formApiSecret.trim();
+        payload.accessTokenSecret = formAccessTokenSecret.trim();
+      }
+
       const res = await fetch(`${BACKEND_URL}/api/accounts/connect`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          platform: selectedPlatform,
-          username: formUsername.trim(),
-          profileUrl: formProfileUrl.trim() || `${PLATFORM_CONFIG[selectedPlatform].defaultUrl}${formUsername.replace('@', '')}`,
-          accessToken: formToken.trim()
-        })
+        body: JSON.stringify(payload)
       });
 
       const data = await res.json();
@@ -1260,35 +1274,109 @@ export default function Home() {
                 />
               </div>
 
-              <div>
-                <label className="text-xs font-mono text-stone-600 block mb-1">
-                  Access Token / API Key
-                </label>
-                <textarea
-                  rows={2}
-                  value={formToken}
-                  onChange={(e) => setFormToken(e.target.value)}
-                  placeholder={
-                    selectedPlatform === 'instagram'
-                      ? 'Paste Meta User Access Token (from developers.facebook.com)...'
+              {selectedPlatform === 'twitter' ? (
+                <div className="space-y-3 pt-2 border-t border-stone-100">
+                  <div className="bg-amber-50/90 border border-amber-200/80 rounded-xl p-3 text-[11px] font-sans text-amber-900 leading-snug">
+                    <span className="font-semibold block font-mono text-[10px] uppercase text-amber-800 mb-1">
+                      ⚡ Twitter / X Live Publishing (OAuth 1.0a)
+                    </span>
+                    <span>
+                      Twitter / X par direct live tweet post karne ke liye aapke Developer Portal (<strong>developer.x.com</strong> &gt; App &gt; <em>Keys and tokens</em>) se yeh 4 keys chahiye:
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="text-[11px] font-mono font-medium text-stone-700 block mb-1">
+                        API Key (Consumer Key) *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={formApiKey}
+                        onChange={(e) => setFormApiKey(e.target.value)}
+                        placeholder="e.g. n8Qx..."
+                        className="w-full bg-[#fbfbf9] border border-stone-200 rounded-xl px-3 py-1.5 text-xs text-stone-900 focus:outline-none focus:border-stone-400 font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-mono font-medium text-stone-700 block mb-1">
+                        API Key Secret *
+                      </label>
+                      <input
+                        type="password"
+                        required
+                        value={formApiSecret}
+                        onChange={(e) => setFormApiSecret(e.target.value)}
+                        placeholder="Paste Consumer Secret..."
+                        className="w-full bg-[#fbfbf9] border border-stone-200 rounded-xl px-3 py-1.5 text-xs text-stone-900 focus:outline-none focus:border-stone-400 font-mono"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] font-mono font-medium text-stone-700 block mb-1">
+                      Access Token *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={formToken}
+                      onChange={(e) => setFormToken(e.target.value)}
+                      placeholder="e.g. 1466828560941740036-..."
+                      className="w-full bg-[#fbfbf9] border border-stone-200 rounded-xl px-3 py-1.5 text-xs text-stone-900 focus:outline-none focus:border-stone-400 font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] font-mono font-medium text-stone-700 block mb-1">
+                      Access Token Secret *
+                    </label>
+                    <input
+                      type="password"
+                      required
+                      value={formAccessTokenSecret}
+                      onChange={(e) => setFormAccessTokenSecret(e.target.value)}
+                      placeholder="Paste Access Token Secret..."
+                      className="w-full bg-[#fbfbf9] border border-stone-200 rounded-xl px-3 py-1.5 text-xs text-stone-900 focus:outline-none focus:border-stone-400 font-mono"
+                    />
+                  </div>
+
+                  <p className="text-[10px] text-stone-500 font-sans">
+                    Make sure your Twitter Developer App permissions are set to <strong>"Read and Write"</strong> so posts can be published to your profile.
+                  </p>
+                </div>
+              ) : (
+                <div>
+                  <label className="text-xs font-mono text-stone-600 block mb-1">
+                    Access Token / API Key
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={formToken}
+                    onChange={(e) => setFormToken(e.target.value)}
+                    placeholder={
+                      selectedPlatform === 'instagram'
+                        ? 'Paste Meta User Access Token (from developers.facebook.com)...'
+                        : selectedPlatform === 'facebook'
+                          ? 'Paste Facebook Page Access Token (pages_manage_posts)...'
+                          : selectedPlatform === 'linkedin'
+                            ? 'Paste LinkedIn OAuth 2.0 Access Token...'
+                            : 'Paste OAuth Access Token / API Key...'
+                    }
+                    className="w-full bg-[#fbfbf9] border border-stone-200 rounded-xl px-3 py-2 text-xs text-stone-900 focus:outline-none focus:border-stone-400 font-mono"
+                  />
+                  <p className="text-[10px] text-stone-400 font-sans mt-1">
+                    {selectedPlatform === 'instagram'
+                      ? 'Meta Graph API token with instagram_content_publish permission is required to post live.'
                       : selectedPlatform === 'facebook'
-                        ? 'Paste Facebook Page Access Token (pages_manage_posts)...'
+                        ? 'Meta rules: Only Facebook Pages allow automated posting (Personal profiles are not supported by Meta). Requires Page Access Token.'
                         : selectedPlatform === 'linkedin'
-                          ? 'Paste LinkedIn OAuth 2.0 Access Token...'
-                          : 'Paste OAuth Access Token / API Key...'
-                  }
-                  className="w-full bg-[#fbfbf9] border border-stone-200 rounded-xl px-3 py-2 text-xs text-stone-900 focus:outline-none focus:border-stone-400 font-mono"
-                />
-                <p className="text-[10px] text-stone-400 font-sans mt-1">
-                  {selectedPlatform === 'instagram'
-                    ? 'Meta Graph API token with instagram_content_publish permission is required to post live.'
-                    : selectedPlatform === 'facebook'
-                      ? 'Meta rules: Only Facebook Pages allow automated posting (Personal profiles are not supported by Meta). Requires Page Access Token.'
-                      : selectedPlatform === 'linkedin'
-                        ? 'LinkedIn token with w_member_social permission is required to post live.'
-                        : 'Stored securely in database for automated publishing.'}
-                </p>
-              </div>
+                          ? 'LinkedIn token with w_member_social permission is required to post live.'
+                          : 'Stored securely in database for automated publishing.'}
+                  </p>
+                </div>
+              )}
 
               <div className="pt-3 border-t border-stone-100 flex items-center justify-between gap-2">
                 {accounts[selectedPlatform]?.isConnected ? (

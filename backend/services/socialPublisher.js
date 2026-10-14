@@ -3,6 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import sharp from 'sharp';
+import { TwitterApi } from 'twitter-api-v2';
 import { Account } from '../models/Account.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -459,28 +460,108 @@ export async function publishToLinkedIn({ text, imageUrl }) {
 }
 
 // 2. Twitter / X Publishing
-export async function publishToTwitter({ text }) {
+export async function publishToTwitter({ text, imageUrl }) {
     const account = await Account.findOne({ platform: 'twitter', isConnected: true });
     const username = account?.username || 'TwitterUser';
     const cleanHandle = username.replace('@', '');
 
-    if (account) {
-        await Account.findByIdAndUpdate(account._id, {
-            $inc: { postCount: 1 },
-            $set: { lastPostAt: new Date() }
-        });
+    const apiKey = account?.apiKey || process.env.TWITTER_API_KEY;
+    const apiSecret = account?.apiSecret || process.env.TWITTER_API_SECRET;
+    const accessToken = account?.accessToken || process.env.TWITTER_ACCESS_TOKEN;
+    const accessTokenSecret = account?.accessTokenSecret || process.env.TWITTER_ACCESS_SECRET;
+    const bearerToken = process.env.TWITTER_BEARER_TOKEN && !process.env.TWITTER_BEARER_TOKEN.includes('your_') ? process.env.TWITTER_BEARER_TOKEN : null;
+
+    const hasOAuth1 = apiKey && apiSecret && accessToken && accessTokenSecret;
+    const hasOAuth2 = accessToken && !hasOAuth1 && (accessToken.length > 30);
+
+    if (!hasOAuth1 && !hasOAuth2 && !bearerToken) {
+        return {
+            success: false,
+            platform: 'twitter',
+            error: 'Twitter API credentials missing. Please enter your API Key, API Secret, Access Token, and Access Token Secret in the Twitter connection modal.'
+        };
     }
 
-    console.log(`ℹ️ [Twitter/X] Dispatched post for @${cleanHandle}`);
-    return {
-        success: true,
-        simulated: true,
-        platform: 'twitter',
-        username: `@${cleanHandle}`,
-        postId: `tweet_${Date.now()}`,
-        postUrl: `https://x.com/${cleanHandle}`,
-        publishedAt: new Date().toISOString()
-    };
+    try {
+        console.log(`🚀 [Twitter/X] Publishing live tweet as @${cleanHandle}...`);
+        let client;
+        if (hasOAuth1) {
+            client = new TwitterApi({
+                appKey: apiKey.trim(),
+                appSecret: apiSecret.trim(),
+                accessToken: accessToken.trim(),
+                accessSecret: accessTokenSecret.trim(),
+            });
+        } else {
+            client = new TwitterApi((accessToken || bearerToken).trim());
+        }
+
+        // Optional media upload if image is present and OAuth 1.0a is configured
+        let mediaId = null;
+        if (imageUrl && hasOAuth1) {
+            try {
+                let imageBuffer = null;
+                if (imageUrl.startsWith('data:image/')) {
+                    const base64Data = imageUrl.split(',')[1];
+                    imageBuffer = Buffer.from(base64Data, 'base64');
+                } else if (imageUrl.includes('/api/media/')) {
+                    try {
+                        const idMatch = imageUrl.match(/\/api\/media\/([a-f0-9]+)/i);
+                        if (idMatch) {
+                            const { Media } = await import('../models/Media.js');
+                            const media = await Media.findById(idMatch[1]);
+                            if (media?.data) imageBuffer = media.data;
+                        }
+                    } catch (_) {}
+                }
+                if (!imageBuffer) {
+                    const imgRes = await axios.get(imageUrl, { responseType: 'arraybuffer', timeout: 15000 });
+                    imageBuffer = Buffer.from(imgRes.data);
+                }
+                if (imageBuffer) {
+                    const jpegBuffer = await sharp(imageBuffer).jpeg({ quality: 90 }).toBuffer();
+                    mediaId = await client.v1.uploadMedia(jpegBuffer, { mimeType: 'image/jpeg' });
+                    console.log(`📸 [Twitter/X] Media uploaded with ID: ${mediaId}`);
+                }
+            } catch (mediaErr) {
+                console.warn('⚠️ [Twitter/X] Media upload warning (will post text-only):', mediaErr.message);
+            }
+        }
+
+        const tweetPayload = { text: (text || '').trim().slice(0, 280) };
+        if (mediaId) {
+            tweetPayload.media = { media_ids: [mediaId] };
+        }
+
+        const tweetRes = await client.v2.tweet(tweetPayload);
+        const tweetId = tweetRes.data?.id || `tweet_${Date.now()}`;
+        const tweetUrl = `https://x.com/${cleanHandle}/status/${tweetId}`;
+        console.log(`🎉 [Twitter/X] Tweet published live! URL: ${tweetUrl}`);
+
+        if (account) {
+            await Account.findByIdAndUpdate(account._id, {
+                $inc: { postCount: 1 },
+                $set: { lastPostAt: new Date(), profileUrl: `https://x.com/${cleanHandle}` }
+            });
+        }
+
+        return {
+            success: true,
+            platform: 'twitter',
+            username: `@${cleanHandle}`,
+            postId: tweetId,
+            postUrl: tweetUrl,
+            publishedAt: new Date().toISOString()
+        };
+    } catch (err) {
+        console.error('❌ [Twitter/X] Live Publish Error:', err.data || err.message);
+        const detail = err.data?.detail || err.data?.title || err.message;
+        return {
+            success: false,
+            platform: 'twitter',
+            error: `Twitter API Error: ${detail}`
+        };
+    }
 }
 
 // 3. Instagram Publishing (Supports both Instagram Graph API and Meta Facebook Graph API)
@@ -783,7 +864,8 @@ export async function publishToPlatforms({ content, imageUrl, platforms = [] }) 
 
     if (platforms.includes('twitter')) {
         results.twitter = await publishToTwitter({
-            text: content.twitter || content.linkedin
+            text: content.twitter || content.linkedin,
+            imageUrl
         });
     }
 

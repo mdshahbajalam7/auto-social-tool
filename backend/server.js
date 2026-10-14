@@ -252,7 +252,10 @@ app.get('/api/accounts', async (req, res) => {
                     isConnected: found.isConnected,
                     postCount: found.postCount || 0,
                     lastPostAt: found.lastPostAt || null,
-                    hasToken: Boolean(found.accessToken)
+                    hasToken: Boolean(found.accessToken || (found.apiKey && found.accessTokenSecret)),
+                    apiKey: found.apiKey || '',
+                    hasApiSecret: Boolean(found.apiSecret),
+                    hasTokenSecret: Boolean(found.accessTokenSecret)
                 }
                 : {
                     platform,
@@ -261,7 +264,10 @@ app.get('/api/accounts', async (req, res) => {
                     isConnected: false,
                     postCount: 0,
                     lastPostAt: null,
-                    hasToken: false
+                    hasToken: false,
+                    apiKey: '',
+                    hasApiSecret: false,
+                    hasTokenSecret: false
                 };
         }
 
@@ -274,7 +280,16 @@ app.get('/api/accounts', async (req, res) => {
 // Connect or update an account from the UI
 app.post('/api/accounts/connect', async (req, res) => {
     try {
-        const { platform, username = '', profileUrl = '', accessToken = '', accountUrn = '' } = req.body;
+        const {
+            platform,
+            username = '',
+            profileUrl = '',
+            accessToken = '',
+            accountUrn = '',
+            apiKey = '',
+            apiSecret = '',
+            accessTokenSecret = ''
+        } = req.body;
         if (!platform || !username.trim()) {
             return res.status(400).json({ success: false, error: 'Platform and username are required.' });
         }
@@ -331,9 +346,12 @@ app.post('/api/accounts/connect', async (req, res) => {
             platform: platform.toLowerCase(),
             username: finalUsername,
             profileUrl: profileUrl ? profileUrl.trim() : `https://${platform}.com/${finalUsername.replace('@', '')}`,
-            accessToken: accessToken || '',
+            accessToken: accessToken ? accessToken.trim() : '',
             isConnected: true
         };
+        if (apiKey) updateData.apiKey = apiKey.trim();
+        if (apiSecret) updateData.apiSecret = apiSecret.trim();
+        if (accessTokenSecret) updateData.accessTokenSecret = accessTokenSecret.trim();
         if (finalUrn) {
             updateData.accountUrn = finalUrn;
         }
@@ -353,7 +371,7 @@ app.post('/api/accounts/connect', async (req, res) => {
                 profileUrl: updated.profileUrl,
                 isConnected: updated.isConnected,
                 postCount: updated.postCount,
-                hasToken: Boolean(updated.accessToken)
+                hasToken: Boolean(updated.accessToken || (updated.apiKey && updated.accessTokenSecret))
             }
         });
     } catch (error) {
@@ -384,7 +402,7 @@ app.post('/api/publish/:platform', async (req, res) => {
         if (platform === 'linkedin') {
             result = await publishToLinkedIn({ text, imageUrl });
         } else if (platform === 'twitter') {
-            result = await publishToTwitter({ text });
+            result = await publishToTwitter({ text, imageUrl });
         } else if (platform === 'instagram') {
             result = await publishToInstagram({ text, imageUrl });
         } else if (platform === 'facebook') {

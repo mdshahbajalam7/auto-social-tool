@@ -21,6 +21,18 @@ const AccountSchema = new mongoose.Schema(
             type: String,
             default: ''
         },
+        apiKey: {
+            type: String,
+            default: ''
+        },
+        apiSecret: {
+            type: String,
+            default: ''
+        },
+        accessTokenSecret: {
+            type: String,
+            default: ''
+        },
         accountUrn: {
             type: String,
             default: ''
