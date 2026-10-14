@@ -111,6 +111,7 @@ export default function Home() {
   const [formApiKey, setFormApiKey] = useState('');
   const [formApiSecret, setFormApiSecret] = useState('');
   const [formAccessTokenSecret, setFormAccessTokenSecret] = useState('');
+  const [twitterAuthMode, setTwitterAuthMode] = useState('oauth1'); // 'oauth1' | 'oauth2'
   const [formSaving, setFormSaving] = useState(false);
 
   // Publishing State
@@ -331,10 +332,13 @@ export default function Home() {
     const existing = accounts[platform];
     setFormUsername(existing?.username || '');
     setFormProfileUrl(existing?.profileUrl || '');
-    setFormToken(platform === 'twitter' ? (existing?.accessToken || '1466828560941740036-YUrC33Pluc05wWRLMUEvOCt6JdDP26') : '');
+    setFormToken(platform === 'twitter' ? (existing?.accessToken || '') : '');
     setFormApiKey(existing?.apiKey || '');
     setFormApiSecret('');
     setFormAccessTokenSecret('');
+    if (platform === 'twitter') {
+      setTwitterAuthMode(existing?.apiKey ? 'oauth1' : 'oauth2');
+    }
     setModalOpen(true);
   };
 
@@ -353,9 +357,15 @@ export default function Home() {
       };
 
       if (selectedPlatform === 'twitter') {
-        payload.apiKey = formApiKey.trim();
-        payload.apiSecret = formApiSecret.trim();
-        payload.accessTokenSecret = formAccessTokenSecret.trim();
+        if (twitterAuthMode === 'oauth1') {
+          payload.apiKey = formApiKey.trim();
+          payload.apiSecret = formApiSecret.trim();
+          payload.accessTokenSecret = formAccessTokenSecret.trim();
+        } else {
+          payload.apiKey = '';
+          payload.apiSecret = '';
+          payload.accessTokenSecret = '';
+        }
       }
 
       const res = await fetch(`${BACKEND_URL}/api/accounts/connect`, {
@@ -1276,71 +1286,129 @@ export default function Home() {
 
               {selectedPlatform === 'twitter' ? (
                 <div className="space-y-3 pt-2 border-t border-stone-100">
-                  <div className="bg-amber-50/90 border border-amber-200/80 rounded-xl p-3 text-[11px] font-sans text-amber-900 leading-snug">
-                    <span className="font-semibold block font-mono text-[10px] uppercase text-amber-800 mb-1">
-                      ⚡ Twitter / X Live Publishing (OAuth 1.0a)
-                    </span>
-                    <span>
-                      Twitter / X par direct live tweet post karne ke liye aapke Developer Portal (<strong>developer.x.com</strong> &gt; App &gt; <em>Keys and tokens</em>) se yeh 4 keys chahiye:
-                    </span>
+                  {/* Auth mode selector tabs */}
+                  <div className="flex rounded-xl bg-stone-100 p-1 gap-1 text-[11px] font-mono">
+                    <button
+                      type="button"
+                      onClick={() => setTwitterAuthMode('oauth1')}
+                      className={`flex-1 py-1.5 px-2 rounded-lg text-center font-medium transition cursor-pointer ${
+                        twitterAuthMode === 'oauth1'
+                          ? 'bg-white text-stone-900 shadow-xs'
+                          : 'text-stone-500 hover:text-stone-700'
+                      }`}
+                    >
+                      OAuth 1.0a (Permanent Keys)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTwitterAuthMode('oauth2')}
+                      className={`flex-1 py-1.5 px-2 rounded-lg text-center font-medium transition cursor-pointer ${
+                        twitterAuthMode === 'oauth2'
+                          ? 'bg-white text-stone-900 shadow-xs'
+                          : 'text-stone-500 hover:text-stone-700'
+                      }`}
+                    >
+                      OAuth 2.0 (Single Token)
+                    </button>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                    <div>
-                      <label className="text-[11px] font-mono font-medium text-stone-700 block mb-1">
-                        API Key (Consumer Key) *
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        value={formApiKey}
-                        onChange={(e) => setFormApiKey(e.target.value)}
-                        placeholder="e.g. n8Qx..."
-                        className="w-full bg-[#fbfbf9] border border-stone-200 rounded-xl px-3 py-1.5 text-xs text-stone-900 focus:outline-none focus:border-stone-400 font-mono"
-                      />
+                  {twitterAuthMode === 'oauth1' ? (
+                    <div className="space-y-2.5">
+                      <div className="bg-amber-50/90 border border-amber-200/80 rounded-xl p-2.5 text-[11px] font-sans text-amber-900 leading-snug">
+                        <span className="font-semibold block font-mono text-[10px] uppercase text-amber-800 mb-0.5">
+                          ⭐ Recommended (Never Expires)
+                        </span>
+                        <span>
+                          Portal ke <strong>OAuth 1.0 Keys</strong> section se Consumer Key & Access Token ke samne <em>Regenerate</em> click karke 4 keys copy karein:
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-[11px] font-mono font-medium text-stone-700 block mb-1">
+                            API Key (Consumer Key) *
+                          </label>
+                          <input
+                            type="text"
+                            required={twitterAuthMode === 'oauth1'}
+                            value={formApiKey}
+                            onChange={(e) => setFormApiKey(e.target.value)}
+                            placeholder="e.g. LtJZ..."
+                            className="w-full bg-[#fbfbf9] border border-stone-200 rounded-xl px-3 py-1.5 text-xs text-stone-900 focus:outline-none focus:border-stone-400 font-mono"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[11px] font-mono font-medium text-stone-700 block mb-1">
+                            API Key Secret *
+                          </label>
+                          <input
+                            type="password"
+                            required={twitterAuthMode === 'oauth1'}
+                            value={formApiSecret}
+                            onChange={(e) => setFormApiSecret(e.target.value)}
+                            placeholder="Paste Consumer Secret..."
+                            className="w-full bg-[#fbfbf9] border border-stone-200 rounded-xl px-3 py-1.5 text-xs text-stone-900 focus:outline-none focus:border-stone-400 font-mono"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] font-mono font-medium text-stone-700 block mb-1">
+                          Access Token (OAuth 1.0a) *
+                        </label>
+                        <input
+                          type="text"
+                          required={twitterAuthMode === 'oauth1'}
+                          value={formToken}
+                          onChange={(e) => setFormToken(e.target.value)}
+                          placeholder="e.g. 1466828560941740036-..."
+                          className="w-full bg-[#fbfbf9] border border-stone-200 rounded-xl px-3 py-1.5 text-xs text-stone-900 focus:outline-none focus:border-stone-400 font-mono"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] font-mono font-medium text-stone-700 block mb-1">
+                          Access Token Secret *
+                        </label>
+                        <input
+                          type="password"
+                          required={twitterAuthMode === 'oauth1'}
+                          value={formAccessTokenSecret}
+                          onChange={(e) => setFormAccessTokenSecret(e.target.value)}
+                          placeholder="Paste Access Token Secret..."
+                          className="w-full bg-[#fbfbf9] border border-stone-200 rounded-xl px-3 py-1.5 text-xs text-stone-900 focus:outline-none focus:border-stone-400 font-mono"
+                        />
+                      </div>
                     </div>
-                    <div>
-                      <label className="text-[11px] font-mono font-medium text-stone-700 block mb-1">
-                        API Key Secret *
-                      </label>
-                      <input
-                        type="password"
-                        required
-                        value={formApiSecret}
-                        onChange={(e) => setFormApiSecret(e.target.value)}
-                        placeholder="Paste Consumer Secret..."
-                        className="w-full bg-[#fbfbf9] border border-stone-200 rounded-xl px-3 py-1.5 text-xs text-stone-900 focus:outline-none focus:border-stone-400 font-mono"
-                      />
+                  ) : (
+                    <div className="space-y-2.5">
+                      <div className="bg-sky-50/90 border border-sky-200/80 rounded-xl p-2.5 text-[11px] font-sans text-sky-900 leading-snug">
+                        <span className="font-semibold block font-mono text-[10px] uppercase text-sky-800 mb-0.5">
+                          ⚡ OAuth 2.0 User Token
+                        </span>
+                        <span>
+                          Portal ke <strong>OAuth 2.0 Keys</strong> section me sabse neeche wala <strong>Access Token</strong> (jisme <em>tweet.write</em> aur <em>Refresh token active</em> likha hai) paste karein.
+                        </span>
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] font-mono font-medium text-stone-700 block mb-1">
+                          OAuth 2.0 Access Token *
+                        </label>
+                        <textarea
+                          rows={3}
+                          required
+                          value={formToken}
+                          onChange={(e) => setFormToken(e.target.value)}
+                          placeholder="e.g. MnpVQjM5eks1Z2V..."
+                          className="w-full bg-[#fbfbf9] border border-stone-200 rounded-xl px-3 py-2 text-xs text-stone-900 focus:outline-none focus:border-stone-400 font-mono"
+                        />
+                        <p className="text-[10px] text-stone-400 font-sans mt-1">
+                          Note: OAuth 2.0 user tokens typically expire after 2 hours. For 24/7 background posting without refresh, OAuth 1.0a is recommended.
+                        </p>
+                      </div>
                     </div>
-                  </div>
-
-                  <div>
-                    <label className="text-[11px] font-mono font-medium text-stone-700 block mb-1">
-                      Access Token *
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={formToken}
-                      onChange={(e) => setFormToken(e.target.value)}
-                      placeholder="e.g. 1466828560941740036-..."
-                      className="w-full bg-[#fbfbf9] border border-stone-200 rounded-xl px-3 py-1.5 text-xs text-stone-900 focus:outline-none focus:border-stone-400 font-mono"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-[11px] font-mono font-medium text-stone-700 block mb-1">
-                      Access Token Secret *
-                    </label>
-                    <input
-                      type="password"
-                      required
-                      value={formAccessTokenSecret}
-                      onChange={(e) => setFormAccessTokenSecret(e.target.value)}
-                      placeholder="Paste Access Token Secret..."
-                      className="w-full bg-[#fbfbf9] border border-stone-200 rounded-xl px-3 py-1.5 text-xs text-stone-900 focus:outline-none focus:border-stone-400 font-mono"
-                    />
-                  </div>
+                  )}
 
                   <p className="text-[10px] text-stone-500 font-sans">
                     Make sure your Twitter Developer App permissions are set to <strong>"Read and Write"</strong> so posts can be published to your profile.
