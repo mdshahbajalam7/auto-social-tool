@@ -544,7 +544,9 @@ export default function Home() {
       });
 
       const data = await res.json();
-      if (data.success) {
+      const isActuallySuccess = data.success && data.result?.success !== false;
+
+      if (isActuallySuccess) {
         const dest = data.result?.username ? `to ${data.result.username}` : `to ${PLATFORM_CONFIG[activeTab]?.name || activeTab}`;
         
         // Show rich celebration prompt modal
@@ -573,10 +575,11 @@ export default function Home() {
         fetchPosts();
         fetchAccounts();
       } else {
-        setBannerMsg({ type: 'error', text: data.error || `Publishing to ${activeTab} failed.` });
+        const errMsg = data.error || data.result?.error || `Publishing to ${PLATFORM_CONFIG[activeTab]?.name || activeTab} failed.`;
+        setBannerMsg({ type: 'error', text: errMsg });
       }
     } catch (err) {
-      setBannerMsg({ type: 'error', text: `Failed to dispatch post to ${activeTab}.` });
+      setBannerMsg({ type: 'error', text: `Failed to dispatch post to ${PLATFORM_CONFIG[activeTab]?.name || activeTab}.` });
     } finally {
       setPublishing(false);
     }
@@ -615,33 +618,53 @@ export default function Home() {
 
       const data = await res.json();
       if (data.success) {
-        const publishedChannels = (data.platforms || []).map((p) => {
-          const resObj = data.results?.[p] || {};
-          return {
-            platform: p,
-            name: PLATFORM_CONFIG[p]?.name || p,
-            username: resObj.username || accounts[p]?.username || 'Account',
-            postUrl: resObj.postUrl || accounts[p]?.profileUrl || '#'
-          };
-        });
+        const successPlatforms = (data.platforms || []).filter(
+          (p) => data.results?.[p]?.success
+        );
+        const failedPlatforms = (data.platforms || []).filter(
+          (p) => !data.results?.[p]?.success
+        );
 
-        // Show rich celebration prompt modal
-        setPublishedModal({
-          title: `Published across ${data.publishedCount} Connected Channel(s)!`,
-          topic: latestPost.research?.topic || niche,
-          channels: publishedChannels
-        });
+        if (successPlatforms.length > 0) {
+          const publishedChannels = successPlatforms.map((p) => {
+            const resObj = data.results?.[p] || {};
+            return {
+              platform: p,
+              name: PLATFORM_CONFIG[p]?.name || p,
+              username: resObj.username || accounts[p]?.username || 'Account',
+              postUrl: resObj.postUrl || accounts[p]?.profileUrl || '#'
+            };
+          });
 
-        // Clear draft and input field
-        setLatestPost(null);
-        setNiche('');
+          // Show rich celebration prompt modal
+          setPublishedModal({
+            title: `Published across ${successPlatforms.length} Connected Channel(s)!`,
+            topic: latestPost.research?.topic || niche,
+            channels: publishedChannels
+          });
 
-        setBannerMsg({
-          type: 'success',
-          text: `🎉 Successfully published across ${data.publishedCount} connected channel(s)!`
-        });
-        fetchPosts();
-        fetchAccounts();
+          // Clear draft and input field
+          setLatestPost(null);
+          setNiche('');
+
+          if (failedPlatforms.length > 0) {
+            setBannerMsg({
+              type: 'info',
+              text: `Published to ${successPlatforms.map(p => PLATFORM_CONFIG[p]?.name || p).join(', ')}. Failed: ${failedPlatforms.map(p => PLATFORM_CONFIG[p]?.name || p).join(', ')}.`
+            });
+          } else {
+            setBannerMsg({
+              type: 'success',
+              text: `🎉 Successfully published across all ${successPlatforms.length} channel(s)!`
+            });
+          }
+          fetchPosts();
+          fetchAccounts();
+        } else {
+          // None succeeded
+          const firstErr = Object.values(data.results || {}).find((r) => r?.error)?.error || 'Multi-channel publishing failed on all connected accounts.';
+          setBannerMsg({ type: 'error', text: firstErr });
+        }
       } else {
         setBannerMsg({
           type: 'error',

@@ -421,6 +421,15 @@ app.post('/api/publish/:platform', async (req, res) => {
             });
         }
 
+        if (!result.success) {
+            return res.status(400).json({
+                success: false,
+                platform,
+                error: result.error || `Publishing to ${platform} failed.`,
+                result
+            });
+        }
+
         res.json({ success: true, platform, result });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
